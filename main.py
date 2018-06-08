@@ -30,8 +30,8 @@ parser.add_argument('--beta1', dest='beta1', type=float, default=0.5, help='mome
 parser.add_argument('--save_epoch_freq', dest='save_epoch_freq', type=int, default=50, help='save a model every save_epoch_freq epochs (does not overwrite previously saved models)')
 parser.add_argument("--save_best", dest="save_best", action="store_true", help="save only the best model, overwrite the previous models")
 parser.set_defaults(save_best=False)
-parser.add_argument('--save_latest_freq', dest='save_latest_freq', type=int, default=5000, help='save the latest model every latest_freq sgd iterations (overwrites the previous latest model)')
 parser.add_argument('--print_freq', dest='print_freq', type=int, default=50, help='print the debug information every print_freq iterations')
+parser.add_argument('--sample_freq', dest='sample_freq', type=int, default=100, help='test and save the sample result every sample_freq iterations')
 parser.add_argument('--continue_train', dest='continue_train', action="store_true", help='if continue training, load the latest model')
 parser.set_defaults(continue_train=False)
 # parser.add_argument('--serial_batches', dest='serial_batches', type=bool, default=False, help='f 1, takes images in order to make batches, otherwise takes them randomly')
@@ -55,9 +55,8 @@ def main(_):
                         sample_size=args.sample_size, input_size=args.input_size, output_size=args.output_size,
                         input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf,
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
-                        save_best=args.save_best, save_latest_freq=args.save_latest_freq,
-                        print_freq=args.print_freq, continue_train=args.continue_train,
-                        L1_lamb=args.L1_lambda)
+                        save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,
+                        continue_train=args.continue_train, L1_lamb=args.L1_lambda)
 
         if args.phase == 'train':
             model.train()

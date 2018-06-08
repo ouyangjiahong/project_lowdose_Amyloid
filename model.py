@@ -9,6 +9,8 @@ from six.moves import xrange
 from ops import *
 from utils import *
 
+EPS = 1e-12
+
 class pix2pix(object):
 
     def __init__(self, sess, phase, dataset_dir,
@@ -17,9 +19,8 @@ class pix2pix(object):
                     input_size=256, output_size=256, sample_size=1,
                     input_c_dim=3, output_c_dim=1, gf_dim=64,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
-                    save_best=False, save_latest_freq=5000,
-                    print_freq=50, continue_train=False,
-                    L1_lamb=100):
+                    save_best=False, print_freq=50, sample_freq=100,
+                    continue_train=False, L1_lamb=100):
 
         """
         Args:
@@ -45,8 +46,8 @@ class pix2pix(object):
 
         self.save_epoch_freq = save_epoch_freq
         self.save_best = save_best
-        self.save_latest_freq = save_latest_freq
         self.print_freq = print_freq
+        self.sample_freq = sample_freq
         self.continue_train = continue_train
 
         # batch normalization : deals with poor initialization helps gradient flow
@@ -99,25 +100,31 @@ class pix2pix(object):
         self.d__sum = tf.summary.histogram("d_", self.D_)
         self.fake_B_sum = tf.summary.image("fake_B", self.fake_B)
 
-        self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
-        self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
-        self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        + self.L1_lamb * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+        # self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
+        # self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        # self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
+        #                 + self.L1_lamb * self.L1_loss
+        self.d_loss_real = tf.reduce_mean(-tf.log(self.D + EPS))
+        self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
+        self.d_loss = self.d_loss_real + self.d_loss_fake
+        self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
+        self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+        self.g_loss_all = self.g_loss + self.L1_lamb * self.L1_loss
 
         self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
         self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
 
-        self.d_loss = self.d_loss_real + self.d_loss_fake
-
         self.g_loss_sum = tf.summary.scalar("g_loss", self.g_loss)
+        self.g_loss_all_sum = tf.summary.scalar("g_loss_all", self.g_loss_all)
         self.d_loss_sum = tf.summary.scalar("d_loss", self.d_loss)
+        self.L1_loss_sum = tf.summary.scalar("L1_loss", self.L1_loss)
 
         t_vars = tf.trainable_variables()
 
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
 
-        self.saver = tf.train.Saver()
+        self.saver = tf.train.Saver(max_to_keep=5)
 
 
     def load_random_samples(self):
@@ -132,30 +139,30 @@ class pix2pix(object):
 
     def sample_model(self, sample_dir, epoch, idx):
         sample_images = self.load_random_samples()
-        samples, d_loss, g_loss = self.sess.run(
-            [self.fake_B_sample, self.d_loss, self.g_loss],
+        samples, d_loss, g_loss_all, L1_loss = self.sess.run(
+            [self.fake_B_sample, self.d_loss, self.g_loss_all, self.L1_loss],
             feed_dict={self.real_data: sample_images}
         )
         save_images(samples, [self.batch_size, 1],
                     './{}/train_{:02d}_{:04d}.png'.format(sample_dir, epoch, idx))
-        print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
+        print("[Sample] d_loss: {:.8f}, g_loss_all: {:.8f}, L1_loss: {:.8f}".format(d_loss, g_loss_all, L1_loss))
 
     def train(self):
         """Train pix2pix"""
         d_optim = tf.train.AdamOptimizer(self.lr, beta1=self.beta1) \
                           .minimize(self.d_loss, var_list=self.d_vars)
         g_optim = tf.train.AdamOptimizer(self.lr, beta1=self.beta1) \
-                          .minimize(self.g_loss, var_list=self.g_vars)
+                          .minimize(self.g_loss_all, var_list=self.g_vars)
 
         init_op = tf.global_variables_initializer()
         self.sess.run(init_op)
 
-        self.g_sum = tf.summary.merge([self.d__sum,
-            self.fake_B_sum, self.d_loss_fake_sum, self.g_loss_sum])
+        self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum,
+            self.fake_B_sum, self.d_loss_fake_sum, self.g_loss_sum, self.g_loss_all_sum])
         self.d_sum = tf.summary.merge([self.d_sum, self.d_loss_real_sum, self.d_loss_sum])
         self.writer = tf.summary.FileWriter("./logs", self.sess.graph)
 
-        counter = 1
+        counter = 0
         start_time = time.time()
 
         if self.load(self.checkpoint_dir):
@@ -177,34 +184,38 @@ class pix2pix(object):
                     batch_images = np.array(batch).astype(np.float32)
 
                 # Update D network
-                _, summary_str = self.sess.run([d_optim, self.d_sum],
+                _, summary_str_d = self.sess.run([d_optim, self.d_sum],
                                                feed_dict={ self.real_data: batch_images })
-                self.writer.add_summary(summary_str, counter)
 
                 # Update G network
-                _, summary_str = self.sess.run([g_optim, self.g_sum],
+                _, summary_str_g = self.sess.run([g_optim, self.g_sum],
                                                feed_dict={ self.real_data: batch_images })
-                self.writer.add_summary(summary_str, counter)
 
                 # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
-                _, summary_str = self.sess.run([g_optim, self.g_sum],
-                                               feed_dict={ self.real_data: batch_images })
-                self.writer.add_summary(summary_str, counter)
-
-                errD_fake = self.d_loss_fake.eval({self.real_data: batch_images})
-                errD_real = self.d_loss_real.eval({self.real_data: batch_images})
-                errG = self.g_loss.eval({self.real_data: batch_images})
+                # _, summary_str = self.sess.run([g_optim, self.g_sum],
+                #                                feed_dict={ self.real_data: batch_images })
+                # self.writer.add_summary(summary_str, counter)
 
                 counter += 1
-                print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
-                    % (epoch, idx, batch_idxs,
-                        time.time() - start_time, errD_fake+errD_real, errG))
+                if counter % self.print_freq == 0:
+                    errD_fake = self.d_loss_fake.eval({self.real_data: batch_images})
+                    errD_real = self.d_loss_real.eval({self.real_data: batch_images})
+                    errG = self.g_loss_all.eval({self.real_data: batch_images})
+                    errL1 = self.L1_loss.eval({self.real_data: batch_images})
 
-                if np.mod(counter, 100) == 1:
+                    print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, L1_loss: %.8f" \
+                        % (epoch, idx, batch_idxs,
+                            time.time() - start_time, errD_fake+errD_real, errG, errL1))
+
+                    self.writer.add_summary(summary_str_d, counter)
+                    self.writer.add_summary(summary_str_g, counter)
+
+                if counter % self.sample_freq == 0:
                     self.sample_model(self.sample_dir, epoch, idx)
 
-                if np.mod(counter, 500) == 2:
-                    self.save(self.checkpoint_dir, counter)
+            if epoch % self.save_epoch_freq == 0:
+                print("save model in")
+                self.save(self.checkpoint_dir, counter)
 
     def discriminator(self, image, y=None, reuse=False):
 
@@ -376,8 +387,9 @@ class pix2pix(object):
 
     def save(self, checkpoint_dir, step):
         model_name = "pix2pix.model"
-        model_dir = "%s_%s_%s" % (self.dataset_name, self.batch_size, self.output_size)
+        model_dir = "%s_%s" % (self.dataset_name, self.batch_size)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
+        print("save model")
 
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
