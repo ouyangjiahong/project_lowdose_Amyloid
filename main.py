@@ -8,7 +8,7 @@ import tensorflow as tf
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--phase', dest='phase', default='train', help='train, test')
-parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data/', help='name of the dataset')
+parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data', help='name of the dataset')
 parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
 parser.add_argument('--test_dir', dest='test_dir', default='./test', help='test sample are saved here')
@@ -36,6 +36,7 @@ parser.add_argument('--continue_train', dest='continue_train', action="store_tru
 parser.set_defaults(continue_train=False)
 # parser.add_argument('--serial_batches', dest='serial_batches', type=bool, default=False, help='f 1, takes images in order to make batches, otherwise takes them randomly')
 # parser.add_argument('--serial_batch_iter', dest='serial_batch_iter', type=bool, default=True, help='iter into serial image list')
+parser.add_argument('--data_type', dest='data_type', default='npz', help='type of data, jpg or png or npz')
 parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
 
 args = parser.parse_args()
@@ -56,7 +57,7 @@ def main(_):
                         input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf,
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
                         save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,
-                        continue_train=args.continue_train, L1_lamb=args.L1_lambda)
+                        continue_train=args.continue_train, L1_lamb=args.L1_lambda, data_type=args.data_type)
 
         if args.phase == 'train':
             model.train()
