@@ -8,7 +8,7 @@ from utils import *
 
 class batch_norm(object):
             # h1 = lrelu(tf.contrib.layers.batch_norm(conv2d(h0, self.df_dim*2, name='d_h1_conv'),decay=0.9,updates_collections=None,epsilon=0.00001,scale=True,scope="d_h1_conv"))
-    def __init__(self, epsilon=1e-5, momentum = 0.9, name="batch_norm"):
+    def __init__(self, epsilon=1e-3, momentum = 0.99, name="batch_norm"):
         with tf.variable_scope(name):
             self.epsilon = epsilon
             self.momentum = momentum
@@ -42,7 +42,7 @@ def conv_cond_concat(x, y):
     return tf.concat([x, y*tf.ones([x_shapes[0], x_shapes[1], x_shapes[2], y_shapes[3]])], 3)
 
 def conv2d(input_, output_dim,
-           k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02,
+           k_h=4, k_w=4, d_h=2, d_w=2, stddev=0.02,
            name="conv2d"):
     with tf.variable_scope(name):
         w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],
@@ -55,7 +55,7 @@ def conv2d(input_, output_dim,
         return conv
 
 def deconv2d(input_, output_shape,
-             k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02,
+             k_h=4, k_w=4, d_h=2, d_w=2, stddev=0.02,
              name="deconv2d", with_w=False):
     with tf.variable_scope(name):
         # filter : [height, width, output_channels, in_channels]

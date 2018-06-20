@@ -78,6 +78,8 @@ def merge(images, reals, size, data_type, path):
             image = np.squeeze(image, axis=2)
             img_path = path[:-4] + '_' + str(idx) + path[-4:]
             scipy.misc.imsave(img_path, image)
+            npz_path = path[:-4] + '_' + str(idx) + '.npy'
+            np.save(npz_path, image)
 
             # save input and target
             real = reals[idx]
@@ -86,13 +88,14 @@ def merge(images, reals, size, data_type, path):
                 tmp = np.concatenate((tmp, real[:,:,i]), axis=1)
             img_path = path[:-4] + '_' + str(idx) + '_input' + path[-4:]
             scipy.misc.imsave(img_path, tmp)
+            npz_path = path[:-4] + '_' + str(idx) + '_input.npy'
+            np.save(npz_path, tmp)
     else:
         h, w = images.shape[1], images.shape[2]
         img = np.zeros((h * size[0], w * size[1], 3))
         for idx, image in enumerate(images):
-            i = idx % size[1]
-            j = idx // size[1]
-            img[j*h:j*h+h, i*w:i*w+w, :] = image
+            img_path = path[:-4] + '_' + str(idx) + path[-4:]
+            scipy.misc.imsave(img_path, image)
 
 def imsave(images, reals, size, path, data_type):
     return merge(images, reals, size, data_type, path)

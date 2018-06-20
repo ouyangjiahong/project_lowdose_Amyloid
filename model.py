@@ -102,14 +102,15 @@ class pix2pix(object):
         self.d__sum = tf.summary.histogram("d_", self.D_)
         self.fake_B_sum = tf.summary.image("fake_B", self.fake_B)
 
-        # self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
-        # self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
+        self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
         # self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                 + self.L1_lamb * self.L1_loss
-        self.d_loss_real = tf.reduce_mean(-tf.log(self.D + EPS))
-        self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
+        # self.d_loss_real = tf.reduce_mean(-tf.log(self.D + EPS))
+        # self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
         self.d_loss = self.d_loss_real + self.d_loss_fake
-        self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
+        # self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         self.g_loss_all = self.g_loss + self.L1_lamb * self.L1_loss
 
@@ -191,8 +192,8 @@ class pix2pix(object):
                                                feed_dict={ self.real_data: batch_images })
 
                 # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
-                # _, summary_str = self.sess.run([g_optim, self.g_sum],
-                #                                feed_dict={ self.real_data: batch_images })
+                _, summary_str_g = self.sess.run([g_optim, self.g_sum],
+                                               feed_dict={ self.real_data: batch_images })
                 # self.writer.add_summary(summary_str, counter)
 
                 counter += 1
@@ -265,19 +266,22 @@ class pix2pix(object):
 
             self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8),
                 [self.batch_size, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
-            d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
+            # d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
+            d1 = self.g_bn_d1(self.d1)
             d1 = tf.concat([d1, e7], 3)
             # d1 is (2 x 2 x self.gf_dim*8*2)
 
             self.d2, self.d2_w, self.d2_b = deconv2d(tf.nn.relu(d1),
                 [self.batch_size, s64, s64, self.gf_dim*8], name='g_d2', with_w=True)
-            d2 = tf.nn.dropout(self.g_bn_d2(self.d2), 0.5)
+            # d2 = tf.nn.dropout(self.g_bn_d2(self.d2), 0.5)
+            d2 = self.g_bn_d2(self.d2)
             d2 = tf.concat([d2, e6], 3)
             # d2 is (4 x 4 x self.gf_dim*8*2)
 
             self.d3, self.d3_w, self.d3_b = deconv2d(tf.nn.relu(d2),
                 [self.batch_size, s32, s32, self.gf_dim*8], name='g_d3', with_w=True)
-            d3 = tf.nn.dropout(self.g_bn_d3(self.d3), 0.5)
+            # d3 = tf.nn.dropout(self.g_bn_d3(self.d3), 0.5)
+            d3 = self.g_bn_d3(self.d3)
             d3 = tf.concat([d3, e5], 3)
             # d3 is (8 x 8 x self.gf_dim*8*2)
 
@@ -449,4 +453,4 @@ class pix2pix(object):
                 feed_dict={self.real_data: sample_image}
             )
             save_images(samples, sample_image, [self.batch_size, 1],
-                        './{}/test_{:04d}.png'.format(self.test_dir, idx))
+                        './{}/test_{:04d}.jpg'.format(self.test_dir, idx), data_type=self.data_type)
