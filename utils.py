@@ -22,9 +22,12 @@ def load_data(image_path, flip=True, is_test=False, data_type='npz'):
     img_A, img_B = preprocess_A_and_B(img_A, img_B, flip=flip, is_test=is_test)
 
     if data_type != 'npz':
-        print('not npz, use normalization')
+        # print('not npz, use normalization')
         img_A = img_A/127.5 - 1.
         img_B = img_B/127.5 - 1.
+    else:   # 16 unit, [0, 32768]
+        img_A = img_A/16384. - 1.
+        img_B = img_B/16384. - 1.
 
     img_AB = np.concatenate((img_A, img_B), axis=2)
     # img_AB shape: (fine_size, fine_size, input_c_dim + output_c_dim)
@@ -35,7 +38,16 @@ def load_image(image_path, data_type):
         input_img = np.load(image_path)
         # print(image_path)
         img_A = input_img['input']
+        # img_A = img_A[:,:,1:]
         img_B = input_img['output']
+        # if img_A.shape[0] < 256:
+            # img_A = scipy.misc.imresize(scipy.misc.toimage(img_A), [128, 128])
+            # img_B = scipy.misc.imresize(scipy.misc.toimage(np.squeeze(img_B, axis=2)), [128, 128])
+            # img_B = scipy.misc.imresize(scipy.misc.toimage(np.repmat(img_B, [1,1,3])), [256, 256])
+            # img_A = img_A/127.5 - 1.
+            # img_B = img_B/127.5 - 1.
+            # img_B = np.reshape(img_B, (128,128,1))
+            # img_B = np.reshape(img_B[:,:,0], [256, 256, 1])/127.5 - 1.
     else:                   # .jpg .png input and output concatenate
         input_img = imread(image_path)
         w = int(input_img.shape[1])
@@ -71,14 +83,17 @@ def merge_images(images, size):
     return inverse_transform(images)
 
 def merge(images, reals, size, data_type, path):
+    images = inverse_transform(images, data_type)
+    reals = inverse_transform(reals, data_type)
     if data_type == 'npz':
         h, w = images.shape[1], images.shape[2]
         for idx, image in enumerate(images):
             # save generatove image
             image = np.squeeze(image, axis=2)
-            img_path = path[:-4] + '_' + str(idx) + path[-4:]
-            scipy.misc.imsave(img_path, image)
-            npz_path = path[:-4] + '_' + str(idx) + '.npy'
+            img_path = path[:-4] + '_' + str(idx) + '_output' + path[-4:]
+            image_img = scipy.misc.bytescale(image*255, low=int(np.amin(image)*255.0), high=int(np.amax(image)*255.0))
+            scipy.misc.imsave(img_path, image_img)
+            npz_path = path[:-4] + '_' + str(idx) + '_output.npy'
             np.save(npz_path, image)
 
             # save input and target
@@ -87,9 +102,22 @@ def merge(images, reals, size, data_type, path):
             for i in range(1, reals.shape[3]):
                 tmp = np.concatenate((tmp, real[:,:,i]), axis=1)
             img_path = path[:-4] + '_' + str(idx) + '_input' + path[-4:]
-            scipy.misc.imsave(img_path, tmp)
-            npz_path = path[:-4] + '_' + str(idx) + '_input.npy'
-            np.save(npz_path, tmp)
+            tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
+            scipy.misc.imsave(img_path, tmp_img)
+            target = real[:,:,-1]
+            img_path = path[:-4] + '_' + str(idx) + '_target' + path[-4:]
+            target_img = scipy.misc.bytescale(target*255, low=int(np.amin(target)*255.0), high=int(np.amax(target)*255.0))
+            scipy.misc.imsave(img_path, target_img)
+            npz_path = path[:-4] + '_' + str(idx) + '_target.npy'
+            np.save(npz_path, target)
+
+            # save diff
+            diff = abs(image - target)
+            img_path = path[:-4] + '_' + str(idx) + '_diff' + path[-4:]
+            diff_img = scipy.misc.bytescale(diff*255, low=int(np.amin(diff)*255.0), high=int(np.amax(diff)*255.0))
+            scipy.misc.imsave(img_path, diff_img)
+            npz_path = path[:-4] + '_' + str(idx) + '_diff.npy'
+            np.save(npz_path, diff)
     else:
         h, w = images.shape[1], images.shape[2]
         img = np.zeros((h * size[0], w * size[1], 3))
@@ -110,6 +138,7 @@ def transform(image, npx=64, is_crop=True, resize_w=64):
 
 def inverse_transform(images, data_type):
     if data_type == 'npz':
+        images = (images+1.)/2.
         return images
     else:
         return (images+1.)/2.
