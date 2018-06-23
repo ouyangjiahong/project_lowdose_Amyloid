@@ -25,9 +25,9 @@ def load_data(image_path, flip=True, is_test=False, data_type='npz'):
         # print('not npz, use normalization')
         img_A = img_A/127.5 - 1.
         img_B = img_B/127.5 - 1.
-    else:   # 16 unit, [0, 32768]
-        img_A = img_A/16384. - 1.
-        img_B = img_B/16384. - 1.
+    # else:   # 16 unit, [0, 32768]
+    #     img_A = img_A/16384. - 1.
+    #     img_B = img_B/16384. - 1.
 
     img_AB = np.concatenate((img_A, img_B), axis=2)
     # img_AB shape: (fine_size, fine_size, input_c_dim + output_c_dim)
@@ -40,6 +40,8 @@ def load_image(image_path, data_type):
         img_A = input_img['input']
         # img_A = img_A[:,:,1:]
         img_B = input_img['output']
+        img_A = 2 * img_A / np.amax(img_A) - 1
+        img_B = 2 * img_B / np.amax(img_B) - 1
         # if img_A.shape[0] < 256:
             # img_A = scipy.misc.imresize(scipy.misc.toimage(img_A), [128, 128])
             # img_B = scipy.misc.imresize(scipy.misc.toimage(np.squeeze(img_B, axis=2)), [128, 128])
@@ -91,33 +93,37 @@ def merge(images, reals, size, data_type, path):
             # save generatove image
             image = np.squeeze(image, axis=2)
             img_path = path[:-4] + '_' + str(idx) + '_output' + path[-4:]
-            image_img = scipy.misc.bytescale(image*255, low=int(np.amin(image)*255.0), high=int(np.amax(image)*255.0))
+            image_img = image
+            # image_img = scipy.misc.bytescale(image*255, low=int(np.amin(image)*255.0), high=int(np.amax(image)*255.0))
             scipy.misc.imsave(img_path, image_img)
-            npz_path = path[:-4] + '_' + str(idx) + '_output.npy'
-            np.save(npz_path, image)
+            # npz_path = path[:-4] + '_' + str(idx) + '_output.npy'
+            # np.save(npz_path, image)
 
             # save input and target
             real = reals[idx]
             tmp = real[:,:,0]
-            for i in range(1, reals.shape[3]):
+            for i in range(1, reals.shape[3]-1):
                 tmp = np.concatenate((tmp, real[:,:,i]), axis=1)
             img_path = path[:-4] + '_' + str(idx) + '_input' + path[-4:]
-            tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
+            tmp_img = tmp
+            # tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
             scipy.misc.imsave(img_path, tmp_img)
             target = real[:,:,-1]
             img_path = path[:-4] + '_' + str(idx) + '_target' + path[-4:]
-            target_img = scipy.misc.bytescale(target*255, low=int(np.amin(target)*255.0), high=int(np.amax(target)*255.0))
+            target_img = target
+            # target_img = scipy.misc.bytescale(target*255, low=int(np.amin(target)*255.0), high=int(np.amax(target)*255.0))
             scipy.misc.imsave(img_path, target_img)
-            npz_path = path[:-4] + '_' + str(idx) + '_target.npy'
-            np.save(npz_path, target)
+            # npz_path = path[:-4] + '_' + str(idx) + '_target.npy'
+            # np.save(npz_path, target)
 
             # save diff
             diff = abs(image - target)
             img_path = path[:-4] + '_' + str(idx) + '_diff' + path[-4:]
-            diff_img = scipy.misc.bytescale(diff*255, low=int(np.amin(diff)*255.0), high=int(np.amax(diff)*255.0))
+            diff_img = diff
+            # diff_img = scipy.misc.bytescale(diff*255, low=int(np.amin(diff)*255.0), high=int(np.amax(diff)*255.0))
             scipy.misc.imsave(img_path, diff_img)
-            npz_path = path[:-4] + '_' + str(idx) + '_diff.npy'
-            np.save(npz_path, diff)
+            # npz_path = path[:-4] + '_' + str(idx) + '_diff.npy'
+            # np.save(npz_path, diff)
     else:
         h, w = images.shape[1], images.shape[2]
         img = np.zeros((h * size[0], w * size[1], 3))

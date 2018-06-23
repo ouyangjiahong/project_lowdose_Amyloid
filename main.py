@@ -14,7 +14,7 @@ parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help=
 parser.add_argument('--test_dir', dest='test_dir', default='./test', help='test sample are saved here')
 parser.add_argument('--epochs', dest='epochs', type=int, default=200, help='# of epoch')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=1, help='# images in batch')
-parser.add_argument('--sample_size', dest='sample_size', type=int, default=1, help='# sample images')
+parser.add_argument('--validation_split', dest='validation_split', type=float, default=0.1, help='random split validation set from training dataset')
 parser.add_argument('--input_size', dest='input_size', type=int, default=256, help='input image size')
 parser.add_argument('--output_size', dest='output_size', type=int, default=256, help='output image size')
 parser.add_argument('--input_nc', dest='input_nc', type=int, default=4, help='# of input image channels')
@@ -50,10 +50,10 @@ def main(_):
         os.makedirs(args.test_dir)
 
     with tf.Session() as sess:
-        model = pix2pix(sess, phase=args.phase, dataset_dir=args.dataset_dir,
+        model = pix2pix(sess, phase=args.phase, dataset_dir=args.dataset_dir, validation_split=args.validation_split,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir,
                         test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size,
-                        sample_size=args.sample_size, input_size=args.input_size, output_size=args.output_size,
+                        input_size=args.input_size, output_size=args.output_size,
                         input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf,
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
                         save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,

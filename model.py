@@ -13,10 +13,10 @@ EPS = 1e-12
 
 class pix2pix(object):
 
-    def __init__(self, sess, phase, dataset_dir,
+    def __init__(self, sess, phase, dataset_dir, validation_split=0.1,
                     checkpoint_dir=None, sample_dir=None,
                     test_dir=None, epochs=200, batch_size=1,
-                    input_size=256, output_size=256, sample_size=1,
+                    input_size=256, output_size=256,
                     input_c_dim=3, output_c_dim=1, gf_dim=64,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
                     save_best=False, print_freq=50, sample_freq=100,
@@ -31,7 +31,6 @@ class pix2pix(object):
         self.batch_size = batch_size
         self.input_size = input_size
         self.output_size = output_size      # current code only support same size of in and out?
-        self.sample_size = sample_size
 
         self.gf_dim = gf_dim
         self.df_dim = df_dim
@@ -77,6 +76,7 @@ class pix2pix(object):
         self.checkpoint_dir = checkpoint_dir
         self.sample_dir = sample_dir
         self.test_dir = test_dir
+        self.validation_split = validation_split
         self.build_model()
 
     def build_model(self):
@@ -135,7 +135,6 @@ class pix2pix(object):
         # data = np.random.choice(glob('./datasets/{}/val/*.jpg'.format(self.dataset_name)), self.batch_size)
         data = np.random.choice(glob('{}/test/*.{}'.format(self.dataset_dir, self.data_type)), self.batch_size)
         sample = [load_data(sample_file, data_type=self.data_type) for sample_file in data]
-
         sample_images = np.array(sample).astype(np.float32)
         return sample_images
 
@@ -173,14 +172,19 @@ class pix2pix(object):
         else:
             print(" [!] Load failed...")
 
+        L1_loss_best = 100
+
         for epoch in xrange(self.epochs):
             # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
             data = glob('{}/train/*.{}'.format(self.dataset_dir, self.data_type))
-            #np.random.shuffle(data)
-            batch_idxs = len(data) // self.batch_size
+            np.random.shuffle(data)
+            training_data_num = int((1 - self.validation_split) * len(data))
+            training_data = data[:training_data_num]
+            validation_data = data[training_data_num:]
+            batch_idxs = len(training_data) // self.batch_size
 
             for idx in xrange(0, batch_idxs):
-                batch_files = data[idx*self.batch_size:(idx+1)*self.batch_size]
+                batch_files = training_data[idx*self.batch_size:(idx+1)*self.batch_size]
                 batch = [load_data(batch_file, data_type=self.data_type) for batch_file in batch_files]
                 batch_images = np.array(batch).astype(np.float32)
 
@@ -214,7 +218,14 @@ class pix2pix(object):
                 if counter % self.sample_freq == 1:
                     self.sample_model(self.sample_dir, epoch, idx)
 
-            if epoch % self.save_epoch_freq == 0:
+            # validate at the end of each epoch
+            L1_loss_avg = self.validate(validation_data)
+            if L1_loss_best > L1_loss_avg: # getting better model, save
+                print("save best model!")
+                self.save(self.checkpoint_dir, counter, is_best=True)
+                L1_loss_best = L1_loss_avg
+
+            elif epoch % self.save_epoch_freq == 0:
                 self.save(self.checkpoint_dir, counter)
 
     def discriminator(self, image, y=None, reuse=False):
@@ -262,7 +273,7 @@ class pix2pix(object):
             # e6 is (4 x 4 x self.gf_dim*8)
             e7 = self.g_bn_e7(conv2d(lrelu(e6), self.gf_dim*8, name='g_e7_conv'))
             # e7 is (2 x 2 x self.gf_dim*8)
-            e8 = self.g_bn_e8(conv2d(lrelu(e7), self.gf_dim*8, name='g_e8_conv'))
+            e8 = self.g_bn_e8(conv2d(lrelu(e7), self.gf_dim*8, name='g_e8_conv', center=True))
             # e8 is (1 x 1 x self.gf_dim*8)
 
             self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8),
@@ -390,8 +401,10 @@ class pix2pix(object):
     #
     #         return tf.nn.tanh(self.d8)
 
-    def save(self, checkpoint_dir, step):
+    def save(self, checkpoint_dir, step, is_best=False):
         model_name = "pix2pix.model"
+        if is_best == True:
+            model_name = 'best.' + model_name
         model_dir = "%s_%s" % (self.output_size, self.batch_size)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
         print("save model")
@@ -416,6 +429,30 @@ class pix2pix(object):
             return True
         else:
             return False
+
+    def validate(self, sample_files):
+        # load validation input
+        print("Loading validation images ...")
+        sample = [load_data(sample_file, is_test=True, data_type=self.data_type) for sample_file in sample_files]
+
+        sample_images = np.array(sample).astype(np.float32)
+
+        sample_images = [sample_images[i:i+self.batch_size]
+                         for i in xrange(0, len(sample_images), self.batch_size)]
+        sample_images = np.array(sample_images)
+
+        L1_loss_counter = 0
+        for i, sample_image in enumerate(sample_images):
+            idx = i+1
+            samples, L1_loss = self.sess.run(
+                [self.fake_B_sample, self.L1_loss],
+                feed_dict={self.real_data: sample_image}
+            )
+            L1_loss_counter = L1_loss_counter + L1_loss
+        L1_loss_avg = L1_loss_counter / idx
+        print('average L1 Loss: ', L1_loss_avg)
+        return L1_loss_avg
+
 
     def test(self):
         """Test pix2pix"""
