@@ -197,8 +197,8 @@ class pix2pix(object):
                                                feed_dict={ self.real_data: batch_images })
 
                 # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
-                _, summary_str_g = self.sess.run([g_optim, self.g_sum],
-                                               feed_dict={ self.real_data: batch_images })
+                # _, summary_str_g = self.sess.run([g_optim, self.g_sum],
+                #                                feed_dict={ self.real_data: batch_images })
                 # self.writer.add_summary(summary_str, counter)
 
                 counter += 1
@@ -443,6 +443,8 @@ class pix2pix(object):
 
         L1_loss_counter = 0
         for i, sample_image in enumerate(sample_images):
+            if sample_image.shape[0] < self.batch_size:
+                break
             idx = i+1
             samples, L1_loss = self.sess.run(
                 [self.fake_B_sample, self.L1_loss],

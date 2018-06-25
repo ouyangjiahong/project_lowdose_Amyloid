@@ -1,3 +1,4 @@
+import argparse
 from scipy import io as sio
 import numpy as np
 import os
@@ -6,11 +7,33 @@ import nibabel as nib
 import sys
 from data_preparation_tools import *
 
+parser = argparse.ArgumentParser(description='')
+parser.add_argument('--set', dest='set', default='train', help='train, test')
+parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='~/data/Amyloid/', help='folder of original data')
+parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='~/data/Amyloid_npz/', help='folder of dst npz data')
+parser.add_argument("--norm", dest="norm", action="store_false", help="save only the best model, overwrite the previous models")
+parser.set_defaults(norm=True)
 
-dir_data_ori = '/data3/Amyloid/'
-dir_data_dst = '/home/jiahong/data/Amyloid/'
-set = 'test'
-norm = True
+args = parser.parse_args()
+set = args.set
+dir_data_ori = args.dir_data_ori
+dir_data_dst = args.dir_data_dst
+norm = args.norm
+
+
+# stanford machine
+# dir_data_ori = '/data3/Amyloid/'
+# dir_data_dst = '/home/jiahong/data/Amyloid/'
+
+# IBM machine
+# dir_data_ori = '~/data/Amyloid/'
+# dir_data_dst = '~/project_lowdose/data/'
+
+# cmu machine
+# dir_data_ori = '/home/jihang/Jiahong/data/'
+# dir_data_dst = '/data/Amyloid_npz/'
+# set = 'test'
+# norm = True
 
 
 dir_data_dst = dir_data_dst + set + '/'
