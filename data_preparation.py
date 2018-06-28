@@ -9,16 +9,19 @@ from data_preparation_tools import *
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--set', dest='set', default='train', help='train, test')
-parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='~/data/Amyloid/', help='folder of original data')
-parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='~/data/Amyloid_npz/', help='folder of dst npz data')
-parser.add_argument("--norm", dest="norm", action="store_false", help="save only the best model, overwrite the previous models")
+parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='/home/data/', help='folder of original data')
+parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/Amyloid_norm/', help='folder of dst npz data')
+parser.add_argument("--norm", dest="norm", action="store_false", help="use Frobenius norm or nor")
 parser.set_defaults(norm=True)
+parser.add_argument("--clip", dest="clip", action="store_false", help="use clip after norm")
+parser.set_defaults(clip=True)
 
 args = parser.parse_args()
 set = args.set
 dir_data_ori = args.dir_data_ori
 dir_data_dst = args.dir_data_dst
 norm = args.norm
+clip = args.clip
 
 
 # stanford machine
@@ -91,11 +94,19 @@ print('process {0} data description'.format(num_dataset_train))
 augmentation
 '''
 list_augments = []
-num_augment_flipxy = 2
-num_augment_flipx = 2
-num_augment_flipy = 2
-num_augment_shiftx = 1
-num_augment_shifty = 1
+if set == 'train':
+    num_augment_flipxy = 2
+    num_augment_flipx = 2
+    num_augment_flipy = 2
+    num_augment_shiftx = 1
+    num_augment_shifty = 1
+else:
+    num_augment_flipxy = 1
+    num_augment_flipx = 1
+    num_augment_flipy = 1
+    num_augment_shiftx = 1
+    num_augment_shifty = 1
+
 for flipxy in range(num_augment_flipxy):
     for flipx in range(num_augment_flipx):
         for flipy in range(num_augment_flipy):
@@ -144,4 +155,4 @@ for index_data in range(num_dataset_train):
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
-                                            ext_data)
+                                            ext_data, clip)

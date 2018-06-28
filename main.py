@@ -7,7 +7,10 @@ from model import pix2pix
 import tensorflow as tf
 
 parser = argparse.ArgumentParser(description='')
+parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
 parser.add_argument('--phase', dest='phase', default='train', help='train, test')
+parser.add_argument('--task', dest='task', default='lowdose', help='lowdose, zerodose, petonly')
+parser.add_argument('--mode', dest='mode', default='mix', help='mix, l1only')
 parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data', help='name of the dataset')
 parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
@@ -17,16 +20,13 @@ parser.add_argument('--batch_size', dest='batch_size', type=int, default=4, help
 parser.add_argument('--validation_split', dest='validation_split', type=float, default=0.1, help='random split validation set from training dataset')
 parser.add_argument('--input_size', dest='input_size', type=int, default=256, help='input image size')
 parser.add_argument('--output_size', dest='output_size', type=int, default=256, help='output image size')
-parser.add_argument('--input_nc', dest='input_nc', type=int, default=4, help='# of input image channels')
+parser.add_argument('--input_nc', dest='input_nc', type=int, default=3, help='# of input image channels')
 parser.add_argument('--output_nc', dest='output_nc', type=int, default=1, help='# of output image channels')
 parser.add_argument('--ngf', dest='ngf', type=int, default=64, help='# of gen filters in first conv layer')
 parser.add_argument('--ndf', dest='ndf', type=int, default=64, help='# of discri filters in first conv layer')
 # parser.add_argument('--niter', dest='niter', type=int, default=200, help='# of iter at starting learning rate')
 parser.add_argument('--lr', dest='lr', type=float, default=0.0002, help='initial learning rate for adam')
 parser.add_argument('--beta1', dest='beta1', type=float, default=0.5, help='momentum term of adam')
-# parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
-# parser.set_defaults(flip=False)
-# parser.add_argument('--which_direction', dest='which_direction', default='AtoB', help='AtoB or BtoA')
 parser.add_argument('--save_epoch_freq', dest='save_epoch_freq', type=int, default=10, help='save a model every save_epoch_freq epochs (does not overwrite previously saved models)')
 parser.add_argument("--save_best", dest="save_best", action="store_true", help="save only the best model, overwrite the previous models")
 parser.set_defaults(save_best=False)
@@ -34,8 +34,6 @@ parser.add_argument('--print_freq', dest='print_freq', type=int, default=100, he
 parser.add_argument('--sample_freq', dest='sample_freq', type=int, default=1000, help='test and save the sample result every sample_freq iterations')
 parser.add_argument('--continue_train', dest='continue_train', action="store_true", help='if continue training, load the latest model')
 parser.set_defaults(continue_train=False)
-# parser.add_argument('--serial_batches', dest='serial_batches', type=bool, default=False, help='f 1, takes images in order to make batches, otherwise takes them randomly')
-# parser.add_argument('--serial_batch_iter', dest='serial_batch_iter', type=bool, default=True, help='iter into serial image list')
 parser.add_argument('--data_type', dest='data_type', default='npz', help='type of data, jpg or png or npz')
 parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
 
@@ -46,11 +44,19 @@ def main(_):
         os.makedirs(args.checkpoint_dir)
     if not os.path.exists(args.sample_dir):
         os.makedirs(args.sample_dir)
-    if not os.path.exists(args.test_dir):
-        os.makedirs(args.test_dir)
+    path_tmp = os.path.join(args.sample_dir, args.task + '_' + args.mode)
+    if not os.path.exists(path_tmp):
+        os.makedirs(path_tmp)
+    path_tmp = os.path.join(args.test_dir, args.task + '_' + args.mode)
+    if not os.path.exists(path_tmp):
+        os.makedirs(path_tmp)
 
-    with tf.Session() as sess:
-        model = pix2pix(sess, phase=args.phase, dataset_dir=args.dataset_dir, validation_split=args.validation_split,
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
+        model = pix2pix(sess, phase=args.phase, task=args.task, mode=args.mode,
+                        dataset_dir=args.dataset_dir, validation_split=args.validation_split,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir,
                         test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size,
                         input_size=args.input_size, output_size=args.output_size,

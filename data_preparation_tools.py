@@ -40,11 +40,12 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
     data_load = np.transpose(data_load[:,:,:,np.newaxis], [2,0,1,3])
     # scale
     if scale_by_norm:
-        #df = data_load.flatten()
-        #norm_factor = np.linalg.norm(df)
-        # norm_factor = np.linalg.norm(data_load.flatten())
-        # pdb.set_trace()
         data_load = data_load / np.linalg.norm(data_load.flatten())
+        for i in range(data_load.shape[0]):
+            img = data_load[i,:,:,:]
+            max_value = min(np.amax(img), 1)
+            data_load[i,:,:,:] = 2 * img / max_value - 1
+
     # finish loading data
     print('loaded from {0}, data size {1} (sample, x, y, channel)'.format(path_load, data_load.shape))
 
@@ -60,7 +61,7 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
     return data_load #, norm_factor # KC 20171018
 
 
-def export_data_to_npz(data_train_input, data_train_gt,dir_numpy_compressed, index_sample_total=0, ext_data = 'npz'):
+def export_data_to_npz(data_train_input, data_train_gt,dir_numpy_compressed, index_sample_total=0, ext_data = 'npz', clip=False):
     index_sample_accumuated = index_sample_total
     num_sample_in_data = data_train_input.shape[0]
     if not os.path.exists(dir_numpy_compressed):
@@ -72,6 +73,12 @@ def export_data_to_npz(data_train_input, data_train_gt,dir_numpy_compressed, ind
     for i in xrange(num_sample_in_data):
         im_input = data_train_input[i,:]
         im_output = data_train_gt[i,:]
+        if clip == True:
+            im_input[:,:,0] = np.clip(im_input[:,:,0], 0, 0.01) / 0.005 - 1
+            im_input[:,:,1] = np.clip(im_input[:,:,1], 0, 0.006) / 0.003 - 1
+            im_input[:,:,2] = np.clip(im_input[:,:,2], 0, 0.006) / 0.003 - 1
+            im_input[:,:,3] = np.clip(im_input[:,:,3], 0, 0.006) / 0.003 - 1
+            im_output = np.clip(im_output, 0, 0.005) / 0.0025 - 1
         filepath_npz = os.path.join(dir_numpy_compressed,'{0}.{1}'.format(index_sample_accumuated, ext_data))
         with open(filepath_npz,'w') as file_input:
             np.savez_compressed(file_input, input=im_input, output=im_output)
