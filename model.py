@@ -14,7 +14,7 @@ EPS = 1e-12
 class pix2pix(object):
 
     def __init__(self, sess, phase, dataset_dir, validation_split=0.1,
-                    task='lowdose', mode='mix',
+                    task='lowdose', mode='mix', residual=False,
                     checkpoint_dir=None, sample_dir=None,
                     test_dir=None, epochs=200, batch_size=1,
                     input_size=256, output_size=256,
@@ -30,6 +30,7 @@ class pix2pix(object):
         self.sess = sess
         self.task = task
         self.mode = mode
+        self.residual = residual
         # self.is_grayscale = False           # TODO: check whether for input or output
         self.batch_size = batch_size
         self.input_size = input_size
@@ -122,7 +123,10 @@ class pix2pix(object):
         self.d_loss = self.d_loss_real + self.d_loss_fake
         # self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
-        self.g_loss_all = self.g_loss + self.L1_lamb * self.L1_loss
+        if self.mode == 'mix':
+            self.g_loss_all = self.g_loss + self.L1_lamb * self.L1_loss
+        else:
+            self.g_loss_all = self.L1_loss
 
         self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
         self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
@@ -199,8 +203,9 @@ class pix2pix(object):
                 batch_images = np.array(batch).astype(np.float32)
 
                 # Update D network
-                _, summary_str_d = self.sess.run([d_optim, self.d_sum],
-                                               feed_dict={ self.real_data: batch_images })
+                if self.mode == 'mix':
+                    _, summary_str_d = self.sess.run([d_optim, self.d_sum],
+                                                   feed_dict={ self.real_data: batch_images })
 
                 # Update G network
                 _, summary_str_g = self.sess.run([g_optim, self.g_sum],
@@ -212,7 +217,6 @@ class pix2pix(object):
                 # self.writer.add_summary(summary_str, counter)
 
                 counter += 1
-                self.save(self.checkpoint_dir, counter, is_best=True)
                 if counter % self.print_freq == 1:
                     errD_fake = self.d_loss_fake.eval({self.real_data: batch_images})
                     errD_real = self.d_loss_real.eval({self.real_data: batch_images})
@@ -223,7 +227,8 @@ class pix2pix(object):
                         % (epoch, idx, batch_idxs,
                             time.time() - start_time, errD_fake+errD_real, errG, errL1))
 
-                    self.writer.add_summary(summary_str_d, counter)
+                    if self.mode == 'mix':
+                        self.writer.add_summary(summary_str_d, counter)
                     self.writer.add_summary(summary_str_g, counter)
 
                 if counter % self.sample_freq == 1:
@@ -336,7 +341,10 @@ class pix2pix(object):
                 [self.batch_size, s, s, self.output_c_dim], name='g_d8', with_w=True)
             # d8 is (256 x 256 x output_c_dim)
 
-            return tf.nn.tanh(self.d8)
+            if self.residual == True:
+                return tf.nn.tanh(self.d8 + tf.expand_dims(image[:,:,:,0], 3))
+            else:
+                return tf.nn.tanh(self.d8)
 
 
     def save(self, checkpoint_dir, step, is_best=False):
@@ -443,3 +451,5 @@ class pix2pix(object):
         output_stat_all = [y for x in output_stat_all for y in x]
         print('input average metrics:', {k:np.nanmean([x[k] for x in input_stat_all]) for k in input_stat_all[0].keys()})
         print('prediction average metrics:', {k:np.nanmean([x[k] for x in output_stat_all]) for k in output_stat_all[0].keys()})
+        print('input variance metrics:', {k:np.nanvar([x[k] for x in input_stat_all]) for k in input_stat_all[0].keys()})
+        print('prediction variance metrics:', {k:np.nanvar([x[k] for x in output_stat_all]) for k in output_stat_all[0].keys()})

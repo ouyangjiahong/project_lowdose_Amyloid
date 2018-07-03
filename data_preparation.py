@@ -13,15 +13,12 @@ parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='/home/data/'
 parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/Amyloid_norm/', help='folder of dst npz data')
 parser.add_argument("--norm", dest="norm", action="store_false", help="use Frobenius norm or nor")
 parser.set_defaults(norm=True)
-parser.add_argument("--clip", dest="clip", action="store_false", help="use clip after norm")
-parser.set_defaults(clip=True)
 
 args = parser.parse_args()
 set = args.set
 dir_data_ori = args.dir_data_ori
 dir_data_dst = args.dir_data_dst
 norm = args.norm
-clip = args.clip
 
 
 # stanford machine
@@ -155,4 +152,4 @@ for index_data in range(num_dataset_train):
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
-                                            ext_data, clip)
+                                            ext_data)

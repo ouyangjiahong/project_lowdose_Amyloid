@@ -18,7 +18,7 @@ get_stddev = lambda x, k_h, k_w: 1/math.sqrt(k_w*k_h*x.get_shape()[-1])
 # -----------------------------
 # new added functions for pix2pix
 
-def load_data(image_path, flip=True, is_test=False, data_type='npz', task='lowdose'):
+def load_data(image_path, is_test=False, data_type='npz', task='lowdose'):
     img_A, img_B = load_image(image_path, data_type, task)
     # img_A, img_B = preprocess_A_and_B(img_A, img_B, flip=flip, is_test=is_test)
 
@@ -49,13 +49,24 @@ def load_image(image_path, data_type, task):
             img_A = img_A[:,:,0]
             img_A = np.expand_dims(img_A, 2)
 
+        # print(np.amax(img_A))
+        # print(np.amin(img_A))
+        # print(np.amax(img_B))
+        # print(np.amin(img_B))
+        # print(img_A)
+        # print(img_B)
+
         # move to data preparation
-        # for i in range(img_A.shape[2]):
-        #     max_value = np.amax(img_A[:,:,i])
-        #     if max_value == 0:
-        #         max_value = 1
-        #     img_A[:,:,i] = 2 * img_A[:,:,i] / max_value - 1
-        # img_B = 2 * img_B / np.amax(img_B) - 1
+        for i in range(img_A.shape[2]):
+            max_value = np.amax(img_A[:,:,i])
+            # print('max_value')
+            # print(max_value)
+            if max_value == 0:
+                max_value = 1
+            img_A[:,:,i] = 2 * img_A[:,:,i] / max_value - 1
+        # print(np.amax(img_A))
+        # print(np.amin(img_A))
+        img_B = 2 * img_B / np.amax(img_B) - 1
 
     else:                   # .jpg .png input and output concatenate
         input_img = imread(image_path)
@@ -94,6 +105,7 @@ def merge(images, reals, size, data_type, path, is_stat=False):
         input_stat_list = []
         for idx, image in enumerate(images):
             # save generatove image
+            lowdose = reals[idx][:,:,0]
             image = np.squeeze(image, axis=2)
             img_path = path[:-4] + '_' + str(idx) + '_output' + path[-4:]
             image_img = image
@@ -109,6 +121,8 @@ def merge(images, reals, size, data_type, path, is_stat=False):
                 tmp = np.concatenate((tmp, real[:,:,i]), axis=1)
             img_path = path[:-4] + '_' + str(idx) + '_input' + path[-4:]
             tmp_img = tmp
+            # print(np.amin(tmp))
+            # print(np.amax(tmp))
             tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
             scipy.misc.imsave(img_path, tmp_img)
             target = real[:,:,-1]

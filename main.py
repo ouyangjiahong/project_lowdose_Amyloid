@@ -11,6 +11,8 @@ parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
 parser.add_argument('--phase', dest='phase', default='train', help='train, test')
 parser.add_argument('--task', dest='task', default='lowdose', help='lowdose, zerodose, petonly')
 parser.add_argument('--mode', dest='mode', default='mix', help='mix, l1only')
+parser.add_argument("--residual", dest="residual", action="store_true", help="add residual learning or not")
+parser.set_defaults(residual=False)
 parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data', help='name of the dataset')
 parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
@@ -55,7 +57,7 @@ def main(_):
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
-        model = pix2pix(sess, phase=args.phase, task=args.task, mode=args.mode,
+        model = pix2pix(sess, phase=args.phase, task=args.task, mode=args.mode, residual=args.residual,
                         dataset_dir=args.dataset_dir, validation_split=args.validation_split,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir,
                         test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size,
