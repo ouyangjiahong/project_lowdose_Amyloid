@@ -17,7 +17,7 @@ class pix2pix(object):
     def __init__(self, sess, phase, dataset_dir, validation_split=0.1,
                     task='lowdose', mode='mix', residual=False,
                     checkpoint_dir=None, sample_dir=None,
-                    test_dir=None, epochs=200, batch_size=1,
+                    test_dir=None, epochs=200, batch_size=1, feat_match=False,
                     dimension=2, block=4, input_size=256, output_size=256,
                     input_c_dim=3, output_c_dim=1, gf_dim=64,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
@@ -34,6 +34,7 @@ class pix2pix(object):
         self.residual = residual
         self.dimension = dimension
         self.block = block
+        self.feat_match = feat_match
         # self.is_grayscale = False           # TODO: check whether for input or output
         self.batch_size = batch_size
         self.input_size = input_size
@@ -112,8 +113,8 @@ class pix2pix(object):
 
         self.real_AB = tf.concat([self.real_A, self.real_B], 3)
         self.fake_AB = tf.concat([self.real_A, self.fake_B], 3)
-        self.D, self.D_logits = self.discriminator(self.real_AB, reuse=False)
-        self.D_, self.D_logits_ = self.discriminator(self.fake_AB, reuse=True)
+        self.D, self.D_logits, self.D_h3 = self.discriminator(self.real_AB, reuse=False)
+        self.D_, self.D_logits_, self.D_h3_ = self.discriminator(self.fake_AB, reuse=True)
 
         # self.fake_B_sample = self.sampler(self.real_A)
         self.fake_B_sample = self.generator(self.real_A, is_sampler=True)
@@ -125,13 +126,19 @@ class pix2pix(object):
 
         self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
         self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
-        self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
-        # self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-        #                 + self.L1_lamb * self.L1_loss
+
+        # add feature matching here
+        if self.feat_match == False:
+            self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
+        else:
+            self.D_h3_diff = self.D_h3 - self.D_h3_
+            self.g_loss = tf.reduce_mean(tf.norm(self.D_h3_diff, ord='euclidean'))
         # self.d_loss_real = tf.reduce_mean(-tf.log(self.D + EPS))
         # self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
-        self.d_loss = self.d_loss_real + self.d_loss_fake
         # self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
+
+        self.d_loss = self.d_loss_real + self.d_loss_fake
+
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         if self.mode == 'mix':
             self.g_loss_all = self.g_loss + self.L1_lamb * self.L1_loss
@@ -231,12 +238,13 @@ class pix2pix(object):
                 if counter % self.print_freq == 1:
                     errD_fake = self.d_loss_fake.eval({self.real_data: batch_images})
                     errD_real = self.d_loss_real.eval({self.real_data: batch_images})
-                    errG = self.g_loss_all.eval({self.real_data: batch_images})
+                    errG = self.g_loss.eval({self.real_data: batch_images})
+                    errG_all = self.g_loss_all.eval({self.real_data: batch_images})
                     errL1 = self.L1_loss.eval({self.real_data: batch_images})
 
-                    print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, L1_loss: %.8f" \
+                    print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, g_loss: %.8f, L1_loss: %.8f" \
                         % (epoch, idx, batch_idxs,
-                            time.time() - start_time, errD_fake+errD_real, errG, errL1))
+                            time.time() - start_time, errD_fake+errD_real, errG_all, errG, errL1))
 
                     if self.mode == 'mix':
                         self.writer.add_summary(summary_str_d, counter)
@@ -275,7 +283,7 @@ class pix2pix(object):
             # h3 is (16 x 16 x self.df_dim*8)
             h4 = linear(tf.reshape(h3, [self.batch_size, -1]), 1, 'd_h3_lin')
 
-            return tf.nn.sigmoid(h4), h4
+            return tf.nn.sigmoid(h4), h4, h3
 
     def generator(self, image, y=None, is_sampler=False):
         with tf.variable_scope("generator") as scope:

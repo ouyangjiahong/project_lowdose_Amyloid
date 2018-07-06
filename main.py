@@ -13,8 +13,10 @@ parser.add_argument('--task', dest='task', default='lowdose', help='lowdose, zer
 parser.add_argument('--mode', dest='mode', default='mix', help='mix, l1only')
 parser.add_argument('--dimension', dest='dimension', type=float, default=2, help='2, 2.5, 3')
 parser.add_argument('--block', dest='block', type=int, default=4, help='the input data contain 2*block+1 slices')
-parser.add_argument("--residual", dest="residual", action="store_true", help="add residual learning or not")
+parser.add_argument("--residual", dest='residual', action="store_true", help="add residual learning or not")
 parser.set_defaults(residual=False)
+parser.add_argument('--feat_match', dest='feat_match', action='store_false', help='use feature matching or not')
+parser.set_defaults(feat_match=True)
 parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data', help='name of the dataset')
 parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
@@ -61,7 +63,7 @@ def main(_):
     with tf.Session(config=config) as sess:
         model = pix2pix(sess, phase=args.phase, task=args.task, mode=args.mode, residual=args.residual,
                         dataset_dir=args.dataset_dir, validation_split=args.validation_split,
-                        checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir,
+                        checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir, feat_match=args.feat_match,
                         test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size, block=args.block,
                         dimension=args.dimension, input_size=args.input_size, output_size=args.output_size,
                         input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf,
