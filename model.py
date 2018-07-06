@@ -4,6 +4,7 @@ import time
 from glob import glob
 import tensorflow as tf
 import numpy as np
+import pdb
 from six.moves import xrange
 
 from ops import *
@@ -17,7 +18,7 @@ class pix2pix(object):
                     task='lowdose', mode='mix', residual=False,
                     checkpoint_dir=None, sample_dir=None,
                     test_dir=None, epochs=200, batch_size=1,
-                    input_size=256, output_size=256,
+                    dimension=2, block=4, input_size=256, output_size=256,
                     input_c_dim=3, output_c_dim=1, gf_dim=64,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
                     save_best=False, print_freq=50, sample_freq=100,
@@ -31,6 +32,8 @@ class pix2pix(object):
         self.task = task
         self.mode = mode
         self.residual = residual
+        self.dimension = dimension
+        self.block = block
         # self.is_grayscale = False           # TODO: check whether for input or output
         self.batch_size = batch_size
         self.input_size = input_size
@@ -41,12 +44,19 @@ class pix2pix(object):
 
         # self.input_c_dim = input_c_dim
         self.output_c_dim = output_c_dim
+        # pdb.set_trace()
         if task == 'lowdose':
             self.input_c_dim = 4
         elif task == 'zerodose':
             self.input_c_dim = input_c_dim
-        else:
-            self.input_c_dim = 1
+        else:       # petonly
+            if self.dimension == 2.5:
+                self.input_c_dim = 2*self.block + 1
+                print(self.input_c_dim)
+                print("___________________________________")
+            else:
+                self.input_c_dim = 1
+
 
         self.epochs = epochs
         self.lr = lr
@@ -147,7 +157,8 @@ class pix2pix(object):
     def load_random_samples(self):
         # data = np.random.choice(glob('./datasets/{}/val/*.jpg'.format(self.dataset_name)), self.batch_size)
         data = np.random.choice(glob('{}/test/*.{}'.format(self.dataset_dir, self.data_type)), self.batch_size)
-        sample = [load_data(sample_file, data_type=self.data_type, task=self.task) for sample_file in data]
+        sample = [load_data(sample_file, data_type=self.data_type, task=self.task, \
+                            dimension=self.dimension) for sample_file in data]
         sample_images = np.array(sample).astype(np.float32)
         return sample_images
 
@@ -199,7 +210,7 @@ class pix2pix(object):
 
             for idx in xrange(0, batch_idxs):
                 batch_files = training_data[idx*self.batch_size:(idx+1)*self.batch_size]
-                batch = [load_data(batch_file, data_type=self.data_type, task=self.task) for batch_file in batch_files]
+                batch = [load_data(batch_file, data_type=self.data_type, task=self.task, dimension=self.dimension) for batch_file in batch_files]
                 batch_images = np.array(batch).astype(np.float32)
 
                 # Update D network
@@ -379,7 +390,8 @@ class pix2pix(object):
     def validate(self, sample_files):
         # load validation input
         print("Loading validation images ...")
-        sample = [load_data(sample_file, is_test=True, data_type=self.data_type, task=self.task) for sample_file in sample_files]
+        sample = [load_data(sample_file, is_test=True, data_type=self.data_type, \
+                            task=self.task, dimension=self.dimension) for sample_file in sample_files]
 
         sample_images = np.array(sample).astype(np.float32)
 
@@ -416,7 +428,8 @@ class pix2pix(object):
 
         # load testing input
         print("Loading testing images ...")
-        sample = [load_data(sample_file, is_test=True, data_type=self.data_type, task=self.task) for sample_file in sample_files]
+        sample = [load_data(sample_file, is_test=True, data_type=self.data_type, \
+                            task=self.task, dimension=self.dimension) for sample_file in sample_files]
 
         sample_images = np.array(sample).astype(np.float32)
 

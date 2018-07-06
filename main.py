@@ -11,6 +11,8 @@ parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
 parser.add_argument('--phase', dest='phase', default='train', help='train, test')
 parser.add_argument('--task', dest='task', default='lowdose', help='lowdose, zerodose, petonly')
 parser.add_argument('--mode', dest='mode', default='mix', help='mix, l1only')
+parser.add_argument('--dimension', dest='dimension', type=float, default=2, help='2, 2.5, 3')
+parser.add_argument('--block', dest='block', type=int, default=4, help='the input data contain 2*block+1 slices')
 parser.add_argument("--residual", dest="residual", action="store_true", help="add residual learning or not")
 parser.set_defaults(residual=False)
 parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data', help='name of the dataset')
@@ -60,8 +62,8 @@ def main(_):
         model = pix2pix(sess, phase=args.phase, task=args.task, mode=args.mode, residual=args.residual,
                         dataset_dir=args.dataset_dir, validation_split=args.validation_split,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir,
-                        test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size,
-                        input_size=args.input_size, output_size=args.output_size,
+                        test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size, block=args.block,
+                        dimension=args.dimension, input_size=args.input_size, output_size=args.output_size,
                         input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf,
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
                         save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,

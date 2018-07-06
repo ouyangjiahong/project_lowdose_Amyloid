@@ -18,54 +18,41 @@ get_stddev = lambda x, k_h, k_w: 1/math.sqrt(k_w*k_h*x.get_shape()[-1])
 # -----------------------------
 # new added functions for pix2pix
 
-def load_data(image_path, is_test=False, data_type='npz', task='lowdose'):
-    img_A, img_B = load_image(image_path, data_type, task)
+def load_data(image_path, is_test=False, data_type='npz', task='lowdose', dimension=2):
+    img_A, img_B = load_image(image_path, data_type, task, dimension)
     # img_A, img_B = preprocess_A_and_B(img_A, img_B, flip=flip, is_test=is_test)
 
     if data_type != 'npz':
         # print('not npz, use normalization')
         img_A = img_A/127.5 - 1.
         img_B = img_B/127.5 - 1.
-    # else:   # 16 unit, [0, 32768]
-    #     img_A = img_A/16384. - 1.
-    #     img_B = img_B/16384. - 1.
 
     img_AB = np.concatenate((img_A, img_B), axis=2)
     # img_AB shape: (fine_size, fine_size, input_c_dim + output_c_dim)
     return img_AB
 
-def load_image(image_path, data_type, task):
+def load_image(image_path, data_type, task, dimension):
     if data_type == 'npz':
         input_img = np.load(image_path)
         # print(image_path)
         img_A = input_img['input']
-        # img_A = img_A[:,:,1:]
         img_B = input_img['output']
         # transfer data to [-1, 1]
         # using data only after F-norm
         if task == 'zerodose':
             img_A = img_A[:,:,1:]
         elif task == 'petonly':
-            img_A = img_A[:,:,0]
-            img_A = np.expand_dims(img_A, 2)
+            if dimension == 2:
+                img_A = img_A[:,:,0]
+                img_A = np.expand_dims(img_A, 2)
 
-        # print(np.amax(img_A))
-        # print(np.amin(img_A))
-        # print(np.amax(img_B))
-        # print(np.amin(img_B))
-        # print(img_A)
-        # print(img_B)
-
-        # move to data preparation
+        # normalize by the max value of each slice (move to data preparation)
         for i in range(img_A.shape[2]):
             max_value = np.amax(img_A[:,:,i])
-            # print('max_value')
-            # print(max_value)
             if max_value == 0:
                 max_value = 1
             img_A[:,:,i] = 2 * img_A[:,:,i] / max_value - 1
-        # print(np.amax(img_A))
-        # print(np.amin(img_A))
+
         img_B = 2 * img_B / np.amax(img_B) - 1
 
     else:                   # .jpg .png input and output concatenate
@@ -117,6 +104,8 @@ def merge(images, reals, size, data_type, path, is_stat=False):
             # save input and target
             real = reals[idx]
             tmp = real[:,:,0]
+            if reals.shape[3] - 1 > 5:      # 2.5D input
+                tmp = real[:,:,reals.shape[3]//2-1]
             for i in range(1, reals.shape[3]-1):
                 tmp = np.concatenate((tmp, real[:,:,i]), axis=1)
             img_path = path[:-4] + '_' + str(idx) + '_input' + path[-4:]

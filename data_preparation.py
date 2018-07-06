@@ -5,20 +5,23 @@ import os
 import dicom
 import nibabel as nib
 import sys
+import pdb
 from data_preparation_tools import *
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--set', dest='set', default='train', help='train, test')
 parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='/home/data/', help='folder of original data')
 parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/Amyloid_norm/', help='folder of dst npz data')
-parser.add_argument("--norm", dest="norm", action="store_false", help="use Frobenius norm or nor")
+parser.add_argument('--norm', dest='norm', action='store_false', help='use Frobenius norm or nor')
 parser.set_defaults(norm=True)
+parser.add_argument('--dimension', dest='dimension', default='2', help='2, 2.5, 3')
 
 args = parser.parse_args()
 set = args.set
 dir_data_ori = args.dir_data_ori
 dir_data_dst = args.dir_data_dst
 norm = args.norm
+dimension = args.dimension
 
 
 # stanford machine
@@ -69,20 +72,30 @@ print(list_subject)
 
 list_dataset_train = []
 
-filename_lowPET = 'pet_nifti/501_.nii.gz'
-filename_PET = 'pet_nifti/500_.nii.gz'
-filename_T1 = 'mr_nifti/T1_nifti_inv.nii'
-filename_T2 = 'mr_nifti/T2_nifti_inv.nii'
-filename_T2FLAIR = 'mr_nifti/T2_FLAIR_nifti_inv.nii'
+if dimension == '2':
+    filename_lowPET = 'pet_nifti/501_.nii.gz'
+    filename_PET = 'pet_nifti/500_.nii.gz'
+    filename_T1 = 'mr_nifti/T1_nifti_inv.nii'
+    filename_T2 = 'mr_nifti/T2_nifti_inv.nii'
+    filename_T2FLAIR = 'mr_nifti/T2_FLAIR_nifti_inv.nii'
 
-for subject_id in list_subject:
-    dir_subject = os.path.join(dir_data_ori, subject_id)
-    list_dataset_train.append({'input':[os.path.join(dir_subject, filename_lowPET),
-                                   os.path.join(dir_subject, filename_T1),
-                                   os.path.join(dir_subject, filename_T2),
-                                   os.path.join(dir_subject, filename_T2FLAIR)],
-                         'gt':os.path.join(dir_subject, filename_PET)}
-                        )
+    for subject_id in list_subject:
+        dir_subject = os.path.join(dir_data_ori, subject_id)
+        list_dataset_train.append({'input':[os.path.join(dir_subject, filename_lowPET),
+                                       os.path.join(dir_subject, filename_T1),
+                                       os.path.join(dir_subject, filename_T2),
+                                       os.path.join(dir_subject, filename_T2FLAIR)],
+                             'gt':os.path.join(dir_subject, filename_PET)}
+                            )
+elif dimension == '2.5':
+    filename_lowPET = 'pet_nifti/501_.nii.gz'
+    filename_PET = 'pet_nifti/500_.nii.gz'
+
+    for subject_id in list_subject:
+        dir_subject = os.path.join(dir_data_ori, subject_id)
+        list_dataset_train.append({'input':[os.path.join(dir_subject, filename_lowPET)],
+                             'gt':os.path.join(dir_subject, filename_PET)}
+                            )
 
 num_dataset_train = len(list_dataset_train)
 print('process {0} data description'.format(num_dataset_train))
@@ -152,4 +165,4 @@ for index_data in range(num_dataset_train):
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
-                                            ext_data)
+                                            ext_data, dimension)
