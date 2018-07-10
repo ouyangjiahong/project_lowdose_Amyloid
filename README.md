@@ -16,6 +16,12 @@ TensorFlow implementation of [Image-to-Image Translation Using Conditional Adver
 - FreeSurfer, FSL
 
 ### Getting Started
+- Download VGG pretrained models
+```bash
+git clone https://github.com/tensorflow/models
+```
+Change the path in code main.py
+sys.path.append("../models/research/slim")
 - Train the model
 ```bash
 python main.py --phase train

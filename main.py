@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import scipy.misc
 import numpy as np
 
@@ -10,7 +11,7 @@ parser = argparse.ArgumentParser(description='')
 parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
 parser.add_argument('--phase', dest='phase', default='train', help='train, test')
 parser.add_argument('--task', dest='task', default='lowdose', help='lowdose, zerodose, petonly')
-parser.add_argument('--mode', dest='mode', default='mix', help='mix, l1only')
+parser.add_argument('--mode', dest='mode', default='gan+l1', help='gan+l1, gan+p, gan+l1+p, l1+p, l1, p')
 parser.add_argument('--dimension', dest='dimension', type=float, default=2, help='2, 2.5, 3')
 parser.add_argument('--block', dest='block', type=int, default=4, help='the input data contain 2*block+1 slices')
 parser.add_argument("--residual", dest='residual', action="store_true", help="add residual learning or not")
@@ -20,6 +21,7 @@ parser.set_defaults(feat_match=True)
 parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data', help='name of the dataset')
 parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
+parser.add_argument('--log_dir', dest='log_dir', default='./log', help='logs are saved here')
 parser.add_argument('--test_dir', dest='test_dir', default='./test', help='test sample are saved here')
 parser.add_argument('--epochs', dest='epochs', type=int, default=100, help='# of epoch')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=4, help='# images in batch')
@@ -42,10 +44,14 @@ parser.add_argument('--continue_train', dest='continue_train', action="store_tru
 parser.set_defaults(continue_train=False)
 parser.add_argument('--data_type', dest='data_type', default='npz', help='type of data, jpg or png or npz')
 parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
+parser.add_argument('--P_lambda', dest='P_lambda', type=float, default=100.0, help='weight on perceptual term in objective')
+parser.add_argument('--g_times', dest='g_times', type=int, default=1, help='train how many times of G for training D once')
 
 args = parser.parse_args()
 
 def main(_):
+    sys.path.append("../models/research/slim")
+
     if not os.path.exists(args.checkpoint_dir):
         os.makedirs(args.checkpoint_dir)
     if not os.path.exists(args.sample_dir):
@@ -62,14 +68,14 @@ def main(_):
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         model = pix2pix(sess, phase=args.phase, task=args.task, mode=args.mode, residual=args.residual,
-                        dataset_dir=args.dataset_dir, validation_split=args.validation_split,
+                        dataset_dir=args.dataset_dir, validation_split=args.validation_split, log_dir=args.log_dir,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir, feat_match=args.feat_match,
                         test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size, block=args.block,
                         dimension=args.dimension, input_size=args.input_size, output_size=args.output_size,
-                        input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf,
+                        input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf, g_times=args.g_times,
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
                         save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,
-                        continue_train=args.continue_train, L1_lamb=args.L1_lambda, data_type=args.data_type)
+                        continue_train=args.continue_train, L1_lamb=args.L1_lambda, P_lamb=args.P_lambda, data_type=args.data_type)
 
         if args.phase == 'train':
             model.train()

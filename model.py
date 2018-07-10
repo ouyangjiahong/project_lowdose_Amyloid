@@ -3,9 +3,12 @@ import os
 import time
 from glob import glob
 import tensorflow as tf
+from tensorflow.contrib.slim.nets import vgg
 import numpy as np
 import pdb
 from six.moves import xrange
+from operator import mul
+from functools import reduce
 
 from ops import *
 from utils import *
@@ -15,14 +18,14 @@ EPS = 1e-12
 class pix2pix(object):
 
     def __init__(self, sess, phase, dataset_dir, validation_split=0.1,
-                    task='lowdose', mode='mix', residual=False,
-                    checkpoint_dir=None, sample_dir=None,
+                    task='lowdose', mode='gan+l1', residual=False,
+                    checkpoint_dir=None, sample_dir=None, log_dir=None,
                     test_dir=None, epochs=200, batch_size=1, feat_match=False,
                     dimension=2, block=4, input_size=256, output_size=256,
-                    input_c_dim=3, output_c_dim=1, gf_dim=64,
+                    input_c_dim=3, output_c_dim=1, gf_dim=64, g_times=1,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
                     save_best=False, print_freq=50, sample_freq=100,
-                    continue_train=False, L1_lamb=100, data_type='npz'):
+                    continue_train=False, L1_lamb=100, P_lamb=100, data_type='npz'):
 
         """
         Args:
@@ -45,7 +48,6 @@ class pix2pix(object):
 
         # self.input_c_dim = input_c_dim
         self.output_c_dim = output_c_dim
-        # pdb.set_trace()
         if task == 'lowdose':
             self.input_c_dim = 4
         elif task == 'zerodose':
@@ -63,6 +65,8 @@ class pix2pix(object):
         self.lr = lr
         self.beta1 = beta1
         self.L1_lamb = L1_lamb
+        self.P_lamb = P_lamb
+        self.g_times = g_times
 
         self.save_epoch_freq = save_epoch_freq
         self.save_best = save_best
@@ -97,8 +101,33 @@ class pix2pix(object):
         self.checkpoint_dir = checkpoint_dir
         self.sample_dir = sample_dir
         self.test_dir = test_dir
+        self.log_dir = log_dir
         self.validation_split = validation_split
+        self.vgg = vgg.vgg_16
         self.build_model()
+
+    def calculator(self):
+        # resize from 256 to 224 by central cropping
+        real_B_224 = tf.image.resize_image_with_crop_or_pad(self.real_B, 224, 224)
+        fake_B_224 = tf.image.resize_image_with_crop_or_pad(self.fake_B, 224, 224)
+
+        # calculate the output of each layers for both real and fake image
+        layer_dict = ['conv3/conv3_3']
+        with tf.variable_scope("calculator") as scope:
+            with tf.contrib.slim.arg_scope(vgg.vgg_arg_scope()):
+                logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=0)
+                tf.get_variable_scope().reuse_variables()
+                logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=0)
+                content_loss = 0
+                for i, layer_name in enumerate(layer_dict):
+                    layer_real = layers_real['calculator/vgg_16/'+layer_name]
+                    layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
+
+                    size = reduce(mul, (d.value for d in layer_real.get_shape()), 1)
+                    content_loss += tf.nn.l2_loss(layer_real - layer_fake)
+                    # content_loss += tf.nn.l2_loss((layer_real - layer_fake) / float(size))
+        return content_loss
+
 
     def build_model(self):
         self.real_data = tf.placeholder(tf.float32,
@@ -126,6 +155,7 @@ class pix2pix(object):
 
         self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
         self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        self.d_loss = self.d_loss_real + self.d_loss_fake
 
         # add feature matching here
         if self.feat_match == False:
@@ -137,13 +167,17 @@ class pix2pix(object):
         # self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
         # self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
 
-        self.d_loss = self.d_loss_real + self.d_loss_fake
-
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
-        if self.mode == 'mix':
-            self.g_loss_all = self.g_loss + self.L1_lamb * self.L1_loss
-        else:
-            self.g_loss_all = self.L1_loss
+        self.content_loss = self.calculator()
+
+        # combination of each loss
+        self.g_loss_all = 0
+        if self.mode == 'gan+l1' or self.mode == 'gan+p' or self.mode == 'gan+l1+p':
+            self.g_loss_all += self.g_loss
+        if self.mode == 'l1' or self.mode == 'l1+p' or self.mode == 'gan+l1+p':
+            self.g_loss_all += self.L1_lamb * self.L1_loss
+        if self.mode == 'p' or self.mode == 'l1+p' or self.mode == 'gan+l1+p':
+            self.g_loss_all += self.P_lamb * self.content_loss
 
         self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
         self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
@@ -152,6 +186,7 @@ class pix2pix(object):
         self.g_loss_all_sum = tf.summary.scalar("g_loss_all", self.g_loss_all)
         self.d_loss_sum = tf.summary.scalar("d_loss", self.d_loss)
         self.L1_loss_sum = tf.summary.scalar("L1_loss", self.L1_loss)
+        self.content_loss_sum = tf.summary.scalar("content_loss", self.content_loss)
 
         t_vars = tf.trainable_variables()
 
@@ -171,14 +206,14 @@ class pix2pix(object):
 
     def sample_model(self, sample_dir, epoch, idx):
         sample_images = self.load_random_samples()
-        samples, d_loss, g_loss_all, L1_loss = self.sess.run(
-            [self.fake_B_sample, self.d_loss, self.g_loss_all, self.L1_loss],
+        samples, d_loss, g_loss_all, L1_loss, content_loss = self.sess.run(
+            [self.fake_B_sample, self.d_loss, self.g_loss_all, self.L1_loss, self.content_loss],
             feed_dict={self.real_data: sample_images}
         )
         save_images(samples, sample_images, [self.batch_size, 1],
                     './{}/{}_{}/train_{:02d}_{:04d}.jpg'.format(sample_dir, self.task, self.mode, epoch, idx),
                     data_type=self.data_type, is_stat=False)
-        print("[Sample] d_loss: {:.8f}, g_loss_all: {:.8f}, L1_loss: {:.8f}".format(d_loss, g_loss_all, L1_loss))
+        print("[Sample] d_loss: {:.8f}, g_loss_all: {:.8f}, L1_loss: {:.8f}, content_loss: {:.8f}".format(d_loss, g_loss_all, L1_loss, content_loss))
 
     def train(self):
         """Train pix2pix"""
@@ -190,10 +225,10 @@ class pix2pix(object):
         init_op = tf.global_variables_initializer()
         self.sess.run(init_op)
 
-        self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum,
+        self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum, self.content_loss_sum,
             self.fake_B_sum, self.real_B_sum, self.d_loss_fake_sum, self.g_loss_sum, self.g_loss_all_sum])
         self.d_sum = tf.summary.merge([self.d_sum, self.d_loss_real_sum, self.d_loss_sum])
-        file_path = './logs/' + self.task + '_' + self.mode
+        file_path = self.log_dir + '/' + self.task + '_' + self.mode
         self.writer = tf.summary.FileWriter(file_path, self.sess.graph)
 
         counter = 0
@@ -221,17 +256,16 @@ class pix2pix(object):
                 batch_images = np.array(batch).astype(np.float32)
 
                 # Update D network
-                if self.mode == 'mix':
+                if self.mode == 'gan+l1' or self.mode == 'gan+p' or self.mode == 'gan+l1+p':
                     _, summary_str_d = self.sess.run([d_optim, self.d_sum],
                                                    feed_dict={ self.real_data: batch_images })
 
                 # Update G network
-                _, summary_str_g = self.sess.run([g_optim, self.g_sum],
-                                               feed_dict={ self.real_data: batch_images })
+                # Run g_optim g_times to make sure that d_loss does not go to zero
+                for g_t in range(self.g_times):
+                    _, summary_str_g = self.sess.run([g_optim, self.g_sum],
+                                                feed_dict={ self.real_data: batch_images })
 
-                # Run g_optim twice to make sure that d_loss does not go to zero (different from paper)
-                # _, summary_str_g = self.sess.run([g_optim, self.g_sum],
-                #                                feed_dict={ self.real_data: batch_images })
                 # self.writer.add_summary(summary_str, counter)
 
                 counter += 1
@@ -241,12 +275,13 @@ class pix2pix(object):
                     errG = self.g_loss.eval({self.real_data: batch_images})
                     errG_all = self.g_loss_all.eval({self.real_data: batch_images})
                     errL1 = self.L1_loss.eval({self.real_data: batch_images})
+                    errC = self.content_loss.eval({self.real_data: batch_images})
 
-                    print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, g_loss: %.8f, L1_loss: %.8f" \
-                        % (epoch, idx, batch_idxs,
-                            time.time() - start_time, errD_fake+errD_real, errG_all, errG, errL1))
+                    print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, \
+                        g_loss: %.8f, L1_loss: %.8f, content_loss: %.8f" % (epoch, idx, batch_idxs,
+                            time.time() - start_time, errD_fake+errD_real, errG_all, errG, errL1, errC))
 
-                    if self.mode == 'mix':
+                    if self.mode == 'gan+l1' or self.mode == 'gan+p' or self.mode == 'gan+l1+p':
                         self.writer.add_summary(summary_str_d, counter)
                     self.writer.add_summary(summary_str_g, counter)
 
