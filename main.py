@@ -11,13 +11,23 @@ parser = argparse.ArgumentParser(description='')
 parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
 parser.add_argument('--phase', dest='phase', default='train', help='train, test')
 parser.add_argument('--task', dest='task', default='lowdose', help='lowdose, zerodose, petonly')
-parser.add_argument('--mode', dest='mode', default='gan+l1', help='gan+l1, gan+p, gan+l1+p, l1+p, l1, p')
+parser.add_argument('--is_gan', dest='is_gan', action='store_true', help='use GAN or not, default:false')
+parser.set_defaults(gan=False)
+parser.add_argument('--is_l1', dest='is_l1', action='store_true', help='use L1 loss or not, default:false')
+parser.set_defaults(is_l1=False)
+parser.add_argument('--is_lc', dest='is_lc', action='store_true', help='use content loss or not, default:false')
+parser.set_defaults(is_lc=False)
+parser.add_argument('--is_ls', dest='is_ls', action='store_true', help='use style loss or not, default:false')
+parser.set_defaults(is_ls=False)
+parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
+parser.add_argument('--c_lambda', dest='c_lambda', type=float, default=100.0, help='weight on content loss term in objective')
+parser.add_argument('--s_lambda', dest='s_lambda', type=float, default=100.0, help='weight on style loss term in objective')
+parser.add_argument('--feat_match', dest='feat_match', action='store_true', help='use feature matching or not, default:false')
+parser.set_defaults(feat_match=False)
 parser.add_argument('--dimension', dest='dimension', type=float, default=2, help='2, 2.5, 3')
 parser.add_argument('--block', dest='block', type=int, default=4, help='the input data contain 2*block+1 slices')
-parser.add_argument("--residual", dest='residual', action="store_true", help="add residual learning or not")
+parser.add_argument("--residual", dest='residual', action="store_true", help="add residual learning or not, default:false")
 parser.set_defaults(residual=False)
-parser.add_argument('--feat_match', dest='feat_match', action='store_false', help='use feature matching or not')
-parser.set_defaults(feat_match=True)
 parser.add_argument('--dataset_dir', dest='dataset_dir', default='../data', help='name of the dataset')
 parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
@@ -43,31 +53,28 @@ parser.add_argument('--sample_freq', dest='sample_freq', type=int, default=1000,
 parser.add_argument('--continue_train', dest='continue_train', action="store_true", help='if continue training, load the latest model')
 parser.set_defaults(continue_train=False)
 parser.add_argument('--data_type', dest='data_type', default='npz', help='type of data, jpg or png or npz')
-parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
-parser.add_argument('--P_lambda', dest='P_lambda', type=float, default=100.0, help='weight on perceptual term in objective')
 parser.add_argument('--g_times', dest='g_times', type=int, default=1, help='train how many times of G for training D once')
 
 args = parser.parse_args()
 
 def main(_):
-    sys.path.append("../models/research/slim")
+    # checking exceptions
+    if not (args.is_gan or args.is_l1 or args.is_lc or args.is_ls):
+        raise ValueError('Need to choose at least one loss objective')
+    if args.feat_match and not args.is_gan:
+        raise ValueError('Only can use feature matching when using GAN loss')
 
-    if not os.path.exists(args.checkpoint_dir):
-        os.makedirs(args.checkpoint_dir)
-    if not os.path.exists(args.sample_dir):
-        os.makedirs(args.sample_dir)
-    path_tmp = os.path.join(args.sample_dir, args.task + '_' + args.mode)
-    if not os.path.exists(path_tmp):
-        os.makedirs(path_tmp)
-    path_tmp = os.path.join(args.test_dir, args.task + '_' + args.mode)
-    if not os.path.exists(path_tmp):
-        os.makedirs(path_tmp)
+    # see README, need to download first
+    sys.path.append("../models/research/slim")
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
+
+
     with tf.Session(config=config) as sess:
-        model = pix2pix(sess, phase=args.phase, task=args.task, mode=args.mode, residual=args.residual,
+        model = pix2pix(sess, phase=args.phase, task=args.task, residual=args.residual,
+                        is_gan=args.is_gan, is_l1=args.is_l1, is_lc=args.is_lc, is_ls=args.is_ls,
                         dataset_dir=args.dataset_dir, validation_split=args.validation_split, log_dir=args.log_dir,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir, feat_match=args.feat_match,
                         test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size, block=args.block,
@@ -75,7 +82,8 @@ def main(_):
                         input_c_dim=args.input_nc, output_c_dim=args.output_nc, gf_dim=args.ngf, g_times=args.g_times,
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
                         save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,
-                        continue_train=args.continue_train, L1_lamb=args.L1_lambda, P_lamb=args.P_lambda, data_type=args.data_type)
+                        continue_train=args.continue_train, L1_lamb=args.L1_lambda, c_lamb=args.c_lambda, s_lamb=args.s_lambda,
+                        data_type=args.data_type)
 
         if args.phase == 'train':
             model.train()

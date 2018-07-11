@@ -18,14 +18,15 @@ EPS = 1e-12
 class pix2pix(object):
 
     def __init__(self, sess, phase, dataset_dir, validation_split=0.1,
-                    task='lowdose', mode='gan+l1', residual=False,
+                    task='lowdose', residual=False, is_gan=False, is_l1=False,
+                    is_lc=False, is_ls=False,
                     checkpoint_dir=None, sample_dir=None, log_dir=None,
                     test_dir=None, epochs=200, batch_size=1, feat_match=False,
                     dimension=2, block=4, input_size=256, output_size=256,
                     input_c_dim=3, output_c_dim=1, gf_dim=64, g_times=1,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
                     save_best=False, print_freq=50, sample_freq=100,
-                    continue_train=False, L1_lamb=100, P_lamb=100, data_type='npz'):
+                    continue_train=False, L1_lamb=100, c_lamb=100, s_lamb=100, data_type='npz'):
 
         """
         Args:
@@ -33,11 +34,30 @@ class pix2pix(object):
         """
         self.sess = sess
         self.task = task
-        self.mode = mode
+        self.is_gan = is_gan
+        self.is_l1 = is_l1
+        self.is_lc = is_lc
+        self.is_ls = is_ls
+        self.feat_match = feat_match
+
+        self.mode = ''
+        if is_gan:
+            self.mode += 'gan+'
+        if is_l1:
+            self.mode += 'l1+'
+        if is_lc:
+            self.mode += 'lc+'
+        if is_ls:
+            self.mode += 'ls+'
+        if feat_match:
+            self.mode += 'feat'
+        if self.mode[-1] == '+':
+            self.mode = self.mode[:-1]
+
         self.residual = residual
         self.dimension = dimension
         self.block = block
-        self.feat_match = feat_match
+
         # self.is_grayscale = False           # TODO: check whether for input or output
         self.batch_size = batch_size
         self.input_size = input_size
@@ -55,8 +75,6 @@ class pix2pix(object):
         else:       # petonly
             if self.dimension == 2.5:
                 self.input_c_dim = 2*self.block + 1
-                print(self.input_c_dim)
-                print("___________________________________")
             else:
                 self.input_c_dim = 1
 
@@ -65,8 +83,10 @@ class pix2pix(object):
         self.lr = lr
         self.beta1 = beta1
         self.L1_lamb = L1_lamb
-        self.P_lamb = P_lamb
+        self.c_lamb = c_lamb
+        self.s_lamb = s_lamb
         self.g_times = g_times
+        self.validation_split = validation_split
 
         self.save_epoch_freq = save_epoch_freq
         self.save_best = save_best
@@ -97,37 +117,58 @@ class pix2pix(object):
         self.g_bn_d7 = batch_norm(name='g_bn_d7')
 
         self.dataset_dir = dataset_dir
-        # self.dataset_name = dataset_dir
         self.checkpoint_dir = checkpoint_dir
         self.sample_dir = sample_dir
         self.test_dir = test_dir
         self.log_dir = log_dir
-        self.validation_split = validation_split
+
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+        if not os.path.exists(self.sample_dir):
+            os.makedirs(self.sample_dir)
+        path_tmp = os.path.join(self.sample_dir, self.task + '_' + self.mode)
+        if not os.path.exists(path_tmp):
+            os.makedirs(path_tmp)
+        path_tmp = os.path.join(self.test_dir, self.task + '_' + self.mode)
+        if not os.path.exists(path_tmp):
+            os.makedirs(path_tmp)
+
         self.vgg = vgg.vgg_16
         self.build_model()
 
     def calculator(self):
+        # calculate the perceptual loss using pre-trained VGG16 net
+
         # resize from 256 to 224 by central cropping
-        real_B_224 = tf.image.resize_image_with_crop_or_pad(self.real_B, 224, 224)
-        fake_B_224 = tf.image.resize_image_with_crop_or_pad(self.fake_B, 224, 224)
+        real_B_224 = 128*tf.image.resize_image_with_crop_or_pad(self.real_B, 224, 224)
+        fake_B_224 = 128*tf.image.resize_image_with_crop_or_pad(self.fake_B, 224, 224)
 
         # calculate the output of each layers for both real and fake image
         layer_dict = ['conv3/conv3_3']
         with tf.variable_scope("calculator") as scope:
             with tf.contrib.slim.arg_scope(vgg.vgg_arg_scope()):
-                logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=0)
-                tf.get_variable_scope().reuse_variables()
-                logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=0)
+                logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=0, scope='vgg_16')
+                # tf.get_variable_scope().reuse_variables()
+                logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=0, scope='vgg_16_1')
                 content_loss = 0
+                style_loss = 0
                 for i, layer_name in enumerate(layer_dict):
                     layer_real = layers_real['calculator/vgg_16/'+layer_name]
+                    print(layers_fake)
                     layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
 
                     size = reduce(mul, (d.value for d in layer_real.get_shape()), 1)
                     content_loss += tf.nn.l2_loss(layer_real - layer_fake)
                     # content_loss += tf.nn.l2_loss((layer_real - layer_fake) / float(size))
-        return content_loss
+        return content_loss, style_loss
 
+    def feature_matching(self):
+        self.g_loss = 0
+        for i in range(4):
+            self.D_hi_diff = self.D_h_all[i] - self.D_h_all_[i]
+            size = reduce(mul, (d.value for d in self.D_hi_diff.get_shape()), 1)
+            self.g_loss += tf.nn.l2_loss(self.D_hi_diff) / size
+        return self.g_loss
 
     def build_model(self):
         self.real_data = tf.placeholder(tf.float32,
@@ -142,8 +183,8 @@ class pix2pix(object):
 
         self.real_AB = tf.concat([self.real_A, self.real_B], 3)
         self.fake_AB = tf.concat([self.real_A, self.fake_B], 3)
-        self.D, self.D_logits, self.D_h3 = self.discriminator(self.real_AB, reuse=False)
-        self.D_, self.D_logits_, self.D_h3_ = self.discriminator(self.fake_AB, reuse=True)
+        self.D, self.D_logits, self.D_h_all = self.discriminator(self.real_AB, reuse=False)
+        self.D_, self.D_logits_, self.D_h_all_ = self.discriminator(self.fake_AB, reuse=True)
 
         # self.fake_B_sample = self.sampler(self.real_A)
         self.fake_B_sample = self.generator(self.real_A, is_sampler=True)
@@ -161,23 +202,26 @@ class pix2pix(object):
         if self.feat_match == False:
             self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
         else:
-            self.D_h3_diff = self.D_h3 - self.D_h3_
-            self.g_loss = tf.reduce_mean(tf.norm(self.D_h3_diff, ord='euclidean'))
+            self.g_loss = self.feature_matching()
+
         # self.d_loss_real = tf.reduce_mean(-tf.log(self.D + EPS))
         # self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
         # self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
 
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
-        self.content_loss = self.calculator()
+        self.content_loss, self.style_loss = self.calculator()
+        # self.content_loss = 0
 
         # combination of each loss
         self.g_loss_all = 0
-        if self.mode == 'gan+l1' or self.mode == 'gan+p' or self.mode == 'gan+l1+p':
+        if self.is_gan:
             self.g_loss_all += self.g_loss
-        if self.mode == 'l1' or self.mode == 'l1+p' or self.mode == 'gan+l1+p':
+        if self.is_l1:
             self.g_loss_all += self.L1_lamb * self.L1_loss
-        if self.mode == 'p' or self.mode == 'l1+p' or self.mode == 'gan+l1+p':
-            self.g_loss_all += self.P_lamb * self.content_loss
+        if self.is_lc:
+            self.g_loss_all += self.c_lamb * self.content_loss
+        if self.is_ls:
+            self.g_loss_all += self.s_lamb * self.style_loss
 
         self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
         self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
@@ -206,14 +250,15 @@ class pix2pix(object):
 
     def sample_model(self, sample_dir, epoch, idx):
         sample_images = self.load_random_samples()
-        samples, d_loss, g_loss_all, L1_loss, content_loss = self.sess.run(
-            [self.fake_B_sample, self.d_loss, self.g_loss_all, self.L1_loss, self.content_loss],
+        samples, d_loss, g_loss_all, g_loss, L1_loss, content_loss = self.sess.run(
+            [self.fake_B_sample, self.d_loss, self.g_loss_all, self.g_loss, self.L1_loss, self.content_loss],
             feed_dict={self.real_data: sample_images}
         )
         save_images(samples, sample_images, [self.batch_size, 1],
                     './{}/{}_{}/train_{:02d}_{:04d}.jpg'.format(sample_dir, self.task, self.mode, epoch, idx),
                     data_type=self.data_type, is_stat=False)
-        print("[Sample] d_loss: {:.8f}, g_loss_all: {:.8f}, L1_loss: {:.8f}, content_loss: {:.8f}".format(d_loss, g_loss_all, L1_loss, content_loss))
+        print("[Sample] d_loss: {:.8f}, g_loss_all: {:.8f}, g_loss: {:.8f}, L1_loss: {:.8f}, \
+                content_loss: {:.8f}".format(d_loss, g_loss_all, g_loss, L1_loss, content_loss))
 
     def train(self):
         """Train pix2pix"""
@@ -256,7 +301,7 @@ class pix2pix(object):
                 batch_images = np.array(batch).astype(np.float32)
 
                 # Update D network
-                if self.mode == 'gan+l1' or self.mode == 'gan+p' or self.mode == 'gan+l1+p':
+                if self.is_gan:
                     _, summary_str_d = self.sess.run([d_optim, self.d_sum],
                                                    feed_dict={ self.real_data: batch_images })
 
@@ -281,7 +326,7 @@ class pix2pix(object):
                         g_loss: %.8f, L1_loss: %.8f, content_loss: %.8f" % (epoch, idx, batch_idxs,
                             time.time() - start_time, errD_fake+errD_real, errG_all, errG, errL1, errC))
 
-                    if self.mode == 'gan+l1' or self.mode == 'gan+p' or self.mode == 'gan+l1+p':
+                    if self.is_gan:
                         self.writer.add_summary(summary_str_d, counter)
                     self.writer.add_summary(summary_str_g, counter)
 
@@ -318,7 +363,7 @@ class pix2pix(object):
             # h3 is (16 x 16 x self.df_dim*8)
             h4 = linear(tf.reshape(h3, [self.batch_size, -1]), 1, 'd_h3_lin')
 
-            return tf.nn.sigmoid(h4), h4, h3
+            return tf.nn.sigmoid(h4), h4, [h0,h1,h2,h3]
 
     def generator(self, image, y=None, is_sampler=False):
         with tf.variable_scope("generator") as scope:
