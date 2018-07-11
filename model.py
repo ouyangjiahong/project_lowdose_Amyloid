@@ -145,22 +145,42 @@ class pix2pix(object):
 
         # calculate the output of each layers for both real and fake image
         content_layer_dict = ['conv1/conv1_2', 'conv2/conv2_2', 'conv3/conv3_3', 'conv4/conv4_3']
-        content_weight = [1e6, 1e6, 1e9, 1e9]
+        content_weight = [1e7, 1e7, 1e10, 1e10]
+        style_layer_dict = ['conv1/conv1_2', 'conv2/conv2_2', 'conv3/conv3_3', 'conv4/conv4_3']
+        style_weight = [1, 1, 1, 1]
+
         with tf.variable_scope("calculator") as scope:
             with tf.contrib.slim.arg_scope(vgg.vgg_arg_scope()):
                 logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=0, scope='vgg_16')
                 # tf.get_variable_scope().reuse_variables()
                 logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=0, scope='vgg_16_1')
-                content_loss = 0
-                style_loss = 0
-                for i, layer_name in enumerate(content_layer_dict):
-                    layer_real = layers_real['calculator/vgg_16/'+layer_name]
-                    print(layers_fake)
-                    layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
+                # content loss
+                content_loss = tf.constant(0)
+                style_loss = tf.constant(0)
+                if self.is_lc:
+                    for i, layer_name in enumerate(content_layer_dict):
+                        layer_real = layers_real['calculator/vgg_16/'+layer_name]
+                        layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
+                        bs, h, w, c = map(lambda i: i.value, layer_real.get_shape())
+                        size = bs * h * w * c
 
-                    size = reduce(mul, (d.value for d in layer_real.get_shape()), 1)
-                    # content_loss += tf.nn.l2_loss(layer_real - layer_fake)
-                    content_loss += content_weight[i] * tf.nn.l2_loss((layer_real - layer_fake) / float(size))
+                        content_loss += content_weight[i] * tf.nn.l2_loss((layer_real - layer_fake) / float(size))
+
+                # style Loss
+                if self.is_ls:
+                    print(layers_fake)
+                    for i, layer_name in enumerate(content_layer_dict):
+                        layer_real = layers_real['calculator/vgg_16/'+layer_name]
+                        bs, h, w, c = map(lambda i: i.value, layer_real.get_shape())
+                        size = bs * h * w * c
+                        layer_real = tf.reshape(layer_real, [bs, h * w, c])
+                        gram_real = tf.matmul(tf.transpose(layer_real, perm=[0,2,1]), layer_real) / size
+                        layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
+                        layer_fake = tf.reshape(layer_fake, [bs, h * w, c])
+                        gram_fake = tf.matmul(tf.transpose(layer_fake, perm=[0,2,1]), layer_fake) / size
+
+                        style_loss += style_weight[i] * tf.nn.l2_loss(gram_real - gram_fake)
+
         return content_loss, style_loss
 
     def feature_matching(self):
@@ -233,13 +253,14 @@ class pix2pix(object):
         self.d_loss_sum = tf.summary.scalar("d_loss", self.d_loss)
         self.L1_loss_sum = tf.summary.scalar("L1_loss", self.L1_loss)
         self.content_loss_sum = tf.summary.scalar("content_loss", self.content_loss)
+        self.style_loss_sum = tf.summary.scalar("style_loss", self.style_loss)
 
         t_vars = tf.trainable_variables()
 
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
 
-        self.saver = tf.train.Saver(max_to_keep=5)
+        self.saver = tf.train.Saver(max_to_keep=10)
 
 
     def load_random_samples(self):
@@ -252,15 +273,15 @@ class pix2pix(object):
 
     def sample_model(self, sample_dir, epoch, idx):
         sample_images = self.load_random_samples()
-        samples, d_loss, g_loss_all, g_loss, L1_loss, content_loss = self.sess.run(
-            [self.fake_B_sample, self.d_loss, self.g_loss_all, self.g_loss, self.L1_loss, self.content_loss],
+        samples, d_loss, g_loss_all, g_loss, L1_loss, content_loss, style_loss = self.sess.run(
+            [self.fake_B_sample, self.d_loss, self.g_loss_all, self.g_loss, self.L1_loss, self.content_loss, self.style_loss],
             feed_dict={self.real_data: sample_images}
         )
         save_images(samples, sample_images, [self.batch_size, 1],
                     './{}/{}_{}/train_{:02d}_{:04d}.jpg'.format(sample_dir, self.task, self.mode, epoch, idx),
                     data_type=self.data_type, is_stat=False)
         print("[Sample] d_loss: {:.8f}, g_loss_all: {:.8f}, g_loss: {:.8f}, L1_loss: {:.8f}, \
-                content_loss: {:.8f}".format(d_loss, g_loss_all, g_loss, L1_loss, content_loss))
+                content_loss: {:.8f}, style_loss: {:.8f}".format(d_loss, g_loss_all, g_loss, L1_loss, content_loss, style_loss))
 
     def train(self):
         """Train pix2pix"""
@@ -272,7 +293,7 @@ class pix2pix(object):
         init_op = tf.global_variables_initializer()
         self.sess.run(init_op)
 
-        self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum, self.content_loss_sum,
+        self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum, self.content_loss_sum, self.style_loss_sum,
             self.fake_B_sum, self.real_B_sum, self.d_loss_fake_sum, self.g_loss_sum, self.g_loss_all_sum])
         self.d_sum = tf.summary.merge([self.d_sum, self.d_loss_real_sum, self.d_loss_sum])
         file_path = self.log_dir + '/' + self.task + '_' + self.mode
@@ -323,10 +344,11 @@ class pix2pix(object):
                     errG_all = self.g_loss_all.eval({self.real_data: batch_images})
                     errL1 = self.L1_loss.eval({self.real_data: batch_images})
                     errC = self.content_loss.eval({self.real_data: batch_images})
+                    errS = self.style_loss.eval({self.real_data: batch_images})
 
                     print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, \
-                        g_loss: %.8f, L1_loss: %.8f, content_loss: %.8f" % (epoch, idx, batch_idxs,
-                            time.time() - start_time, errD_fake+errD_real, errG_all, errG, errL1, errC))
+                        g_loss: %.8f, L1_loss: %.8f, content_loss: %.8f, style_loss: %.8f" % (epoch, idx, batch_idxs,
+                            time.time() - start_time, errD_fake+errD_real, errG_all, errG, errL1, errC, errS))
 
                     if self.is_gan:
                         self.writer.add_summary(summary_str_d, counter)
