@@ -144,7 +144,8 @@ class pix2pix(object):
         fake_B_224 = 128*tf.image.resize_image_with_crop_or_pad(self.fake_B, 224, 224)
 
         # calculate the output of each layers for both real and fake image
-        layer_dict = ['conv3/conv3_3']
+        content_layer_dict = ['conv1/conv1_2', 'conv2/conv2_2', 'conv3/conv3_3', 'conv4/conv4_3']
+        content_weight = [1e6, 1e6, 1e9, 1e9]
         with tf.variable_scope("calculator") as scope:
             with tf.contrib.slim.arg_scope(vgg.vgg_arg_scope()):
                 logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=0, scope='vgg_16')
@@ -152,20 +153,21 @@ class pix2pix(object):
                 logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=0, scope='vgg_16_1')
                 content_loss = 0
                 style_loss = 0
-                for i, layer_name in enumerate(layer_dict):
+                for i, layer_name in enumerate(content_layer_dict):
                     layer_real = layers_real['calculator/vgg_16/'+layer_name]
                     print(layers_fake)
                     layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
 
                     size = reduce(mul, (d.value for d in layer_real.get_shape()), 1)
-                    content_loss += tf.nn.l2_loss(layer_real - layer_fake)
-                    # content_loss += tf.nn.l2_loss((layer_real - layer_fake) / float(size))
+                    # content_loss += tf.nn.l2_loss(layer_real - layer_fake)
+                    content_loss += content_weight[i] * tf.nn.l2_loss((layer_real - layer_fake) / float(size))
         return content_loss, style_loss
 
     def feature_matching(self):
         self.g_loss = 0
         for i in range(4):
             self.D_hi_diff = self.D_h_all[i] - self.D_h_all_[i]
+            print(self.D_hi_diff)
             size = reduce(mul, (d.value for d in self.D_hi_diff.get_shape()), 1)
             self.g_loss += tf.nn.l2_loss(self.D_hi_diff) / size
         return self.g_loss
