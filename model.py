@@ -328,8 +328,8 @@ class pix2pix(object):
 
         L1_loss_best = 100
         self.l1_lamb_cur = self.L1_lamb
-        self.lc_lamb_cur = 1
-        self.ls_lamb_cur = 1
+        self.lc_lamb_cur = 0
+        self.ls_lamb_cur = 0
 
         for epoch in xrange(self.epochs):
             # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
@@ -339,6 +339,10 @@ class pix2pix(object):
             training_data = data[:training_data_num]
             validation_data = data[training_data_num:]
             batch_idxs = len(training_data) // self.batch_size
+
+            # if epoch > 0:
+            #     self.lc_lamb_cur = self.c_lamb
+            #     self.ls_lamb_cur = self.s_lamb
 
             for idx in xrange(0, batch_idxs):
                 batch_files = training_data[idx*self.batch_size:(idx+1)*self.batch_size]
@@ -376,12 +380,26 @@ class pix2pix(object):
                     self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
                     errS = self.style_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
                     self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
-                    if errC < 0.001:
-                        self.lc_lamb_cur = self.c_lamb
-                    if errS < 10:
-                        self.ls_lamb_cur = self.s_lamb / 10
-                    elif errS < 1:
-                        self.ls_lamb_cur = self.s_lamb
+
+                    # pdb.set_trace()
+                    if errC < 0.01:
+                        if self.lc_lamb_cur == self.c_lamb / 10:
+                            self.lc_lamb_cur = self.c_lamb
+                    elif errC < 0.1:
+                        self.lc_lamb_cur = self.c_lamb / 10
+                    if errS < 1:
+                        if self.ls_lamb_cur == self.s_lamb / 10:
+                            self.ls_lamb_cur = self.s_lamb
+                    elif errS < 10:
+                        if self.ls_lamb_cur == self.s_lamb / 100:
+                            self.ls_lamb_cur = self.s_lamb / 10
+                    elif errS < 100:
+                        if self.ls_lamb_cur == self.s_lamb / 1000:
+                            self.ls_lamb_cur = self.s_lamb / 100
+                    elif errS < 1000:
+                        self.ls_lamb_cur = self.s_lamb / 1000
+                    # print(self.lc_lamb_cur)
+                    # print(self.ls_lamb_cur)
 
 
                     print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, \

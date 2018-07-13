@@ -1,13 +1,13 @@
 clear
 % load data
-l1_dir = 'test/petonly_l1only/';
-gan_dir = 'test/petonly_mix/';
+l1_dir = '../test/petonly_l1only/';
+gan_dir = '../test_25D/petonly_gan+l1/';
 
 tga_list_l1 = [];
 tga_list_gan = [];
 tga_list_gt = [];
 
-for i = 1 : 4 : 178
+for i = 1 : 4 : 162
     for j = 0 : 2 : 3
         disp(i)
         disp(j)

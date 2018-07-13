@@ -167,4 +167,4 @@ for index_data in range(num_dataset_train):
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
-                                            ext_data, dimension, block)
+                                            ext_data, dimension, block=block)

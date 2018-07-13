@@ -193,6 +193,7 @@ def main(args):
 
             # save fine-tuned model
             if val_acc > val_acc_best:
+                val_acc_best = val_acc
                 save_path = saver.save(sess, args.fine_tune_model_path)
                 print('save best model in path: %s' % save_path)
 
@@ -216,6 +217,7 @@ def main(args):
 
             # save fine-tuned model
             if val_acc > val_acc_best:
+                val_acc_best = val_acc
                 save_path = saver.save(sess, args.fine_tune_model_path)
                 print('save best model in path: %s' % save_path)
 

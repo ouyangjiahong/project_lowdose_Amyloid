@@ -1,14 +1,14 @@
 clear
 % load data
-l1_dir = 'test/petonly_l1only/';
-gan_dir = 'test/petonly_mix/';
+l1_dir = '../test/petonly_l1only/';
+gan_dir = '../test_25D/petonly_gan+l1/';
 
 FM_list_l1 = [];
 FM_list_gan = [];
 FM_list_gt = [];
 
-for i = 28 : 28
-    for j = 0 : 0
+for i = 1 : 162
+    for j = 0 : 3
         img_path = ['test_',num2str(i,'%04d'),'_',num2str(j)];
         img_path_l1 = [l1_dir,img_path,'_output.jpg'];
         img_l1 = imread(img_path_l1);
