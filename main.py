@@ -47,7 +47,7 @@ parser.add_argument('--ndf', dest='ndf', type=int, default=64, help='# of discri
 # parser.add_argument('--niter', dest='niter', type=int, default=200, help='# of iter at starting learning rate')
 parser.add_argument('--lr', dest='lr', type=float, default=0.0002, help='initial learning rate for adam')
 parser.add_argument('--beta1', dest='beta1', type=float, default=0.5, help='momentum term of adam')
-parser.add_argument('--save_epoch_freq', dest='save_epoch_freq', type=int, default=10, help='save a model every save_epoch_freq epochs (does not overwrite previously saved models)')
+parser.add_argument('--save_epoch_freq', dest='save_epoch_freq', type=int, default=20, help='save a model every save_epoch_freq epochs (does not overwrite previously saved models)')
 parser.add_argument("--save_best", dest="save_best", action="store_true", help="save only the best model, overwrite the previous models")
 parser.set_defaults(save_best=False)
 parser.add_argument('--print_freq', dest='print_freq', type=int, default=100, help='print the debug information every print_freq iterations')

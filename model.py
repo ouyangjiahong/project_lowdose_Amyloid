@@ -139,6 +139,8 @@ class pix2pix(object):
 
     def calculator(self):
         # calculate the perceptual loss using pre-trained VGG16 net
+        if not(self.is_lc or self.is_ls):
+            return tf.constant(0.0), tf.constant(0.0)
 
         # resize from 256 to 224 by central cropping
         real_B_224 = 128*tf.image.resize_image_with_crop_or_pad(self.real_B, 224, 224)
@@ -155,15 +157,17 @@ class pix2pix(object):
 
         if self.is_finetune:
             pretrained_model_path = 'vgg_16_amyloid_ckpt/'
+            num_cls = 2
         else:
             pretrained_model_path = 'vgg_16.ckpt'
+            num_cls = 1000
         with tf.variable_scope("calculator") as scope:
             with tf.contrib.slim.arg_scope(vgg.vgg_arg_scope()):
                 # load pretrained vgg16 models
-                logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=2, scope='real/vgg_16')
+                logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=num_cls, scope='real/vgg_16')
                 tf.contrib.framework.init_from_checkpoint(pretrained_model_path, {'vgg_16/':'calculator/real/vgg_16/'})
 
-                logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=2, scope='fake/vgg_16')
+                logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=num_cls, scope='fake/vgg_16')
                 tf.contrib.framework.init_from_checkpoint(pretrained_model_path, {'vgg_16/':'calculator/fake/vgg_16/'})
                 print('load VGG16 pretrained model')
 
@@ -198,7 +202,7 @@ class pix2pix(object):
         self.g_loss = 0
         for i in range(4):
             self.D_hi_diff = self.D_h_all[i] - self.D_h_all_[i]
-            print(self.D_hi_diff)
+            # print(self.D_hi_diff)
             size = reduce(mul, (d.value for d in self.D_hi_diff.get_shape()), 1)
             self.g_loss += tf.nn.l2_loss(self.D_hi_diff) / size
         return self.g_loss
@@ -243,18 +247,21 @@ class pix2pix(object):
 
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         self.content_loss, self.style_loss = self.calculator()
-        # self.content_loss = 0
 
         # combination of each loss
+        self.l1_lambda_holder = tf.placeholder(tf.float32)
+        self.lc_lambda_holder = tf.placeholder(tf.float32)
+        self.ls_lambda_holder = tf.placeholder(tf.float32)
         self.g_loss_all = 0
         if self.is_gan:
             self.g_loss_all += self.g_loss
         if self.is_l1:
-            self.g_loss_all += self.L1_lamb * self.L1_loss
+            # self.g_loss_all += self.L1_lamb * self.L1_loss
+            self.g_loss_all += self.l1_lambda_holder * self.L1_loss
         if self.is_lc:
-            self.g_loss_all += self.c_lamb * self.content_loss
+            self.g_loss_all += self.lc_lambda_holder * self.content_loss
         if self.is_ls:
-            self.g_loss_all += self.s_lamb * self.style_loss
+            self.g_loss_all += self.ls_lambda_holder * self.style_loss
 
         self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
         self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
@@ -271,7 +278,7 @@ class pix2pix(object):
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
 
-        self.saver = tf.train.Saver(max_to_keep=10)
+        self.saver = tf.train.Saver(max_to_keep=5)
 
 
     def load_random_samples(self):
@@ -286,7 +293,8 @@ class pix2pix(object):
         sample_images = self.load_random_samples()
         samples, d_loss, g_loss_all, g_loss, L1_loss, content_loss, style_loss = self.sess.run(
             [self.fake_B_sample, self.d_loss, self.g_loss_all, self.g_loss, self.L1_loss, self.content_loss, self.style_loss],
-            feed_dict={self.real_data: sample_images}
+            feed_dict={self.real_data: sample_images, self.l1_lambda_holder: self.l1_lamb_cur,
+            self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur}
         )
         save_images(samples, sample_images, [self.batch_size, 1],
                     './{}/{}_{}/train_{:02d}_{:04d}.jpg'.format(sample_dir, self.task, self.mode, epoch, idx),
@@ -319,6 +327,9 @@ class pix2pix(object):
             print(" [!] Load failed...")
 
         L1_loss_best = 100
+        self.l1_lamb_cur = self.L1_lamb
+        self.lc_lamb_cur = 1
+        self.ls_lamb_cur = 1
 
         for epoch in xrange(self.epochs):
             # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
@@ -337,25 +348,41 @@ class pix2pix(object):
                 # Update D network
                 if self.is_gan:
                     _, summary_str_d = self.sess.run([d_optim, self.d_sum],
-                                                   feed_dict={ self.real_data: batch_images })
+                                                   feed_dict={ self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                                                   self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur })
 
                 # Update G network
                 # Run g_optim g_times to make sure that d_loss does not go to zero
                 for g_t in range(self.g_times):
                     _, summary_str_g = self.sess.run([g_optim, self.g_sum],
-                                                feed_dict={ self.real_data: batch_images })
+                                                feed_dict={ self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                                                self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur })
 
                 # self.writer.add_summary(summary_str, counter)
 
                 counter += 1
                 if counter % self.print_freq == 1:
-                    errD_fake = self.d_loss_fake.eval({self.real_data: batch_images})
-                    errD_real = self.d_loss_real.eval({self.real_data: batch_images})
-                    errG = self.g_loss.eval({self.real_data: batch_images})
-                    errG_all = self.g_loss_all.eval({self.real_data: batch_images})
-                    errL1 = self.L1_loss.eval({self.real_data: batch_images})
-                    errC = self.content_loss.eval({self.real_data: batch_images})
-                    errS = self.style_loss.eval({self.real_data: batch_images})
+                    errD_fake = self.d_loss_fake.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    errD_real = self.d_loss_real.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    errG = self.g_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    errG_all = self.g_loss_all.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    errL1 = self.L1_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    errC = self.content_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    errS = self.style_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
+                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    if errC < 0.001:
+                        self.lc_lamb_cur = self.c_lamb
+                    if errS < 10:
+                        self.ls_lamb_cur = self.s_lamb / 10
+                    elif errS < 1:
+                        self.ls_lamb_cur = self.s_lamb
+
 
                     print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss_all: %.8f, \
                         g_loss: %.8f, L1_loss: %.8f, content_loss: %.8f, style_loss: %.8f" % (epoch, idx, batch_idxs,
@@ -529,7 +556,8 @@ class pix2pix(object):
             idx = i+1
             samples, L1_loss = self.sess.run(
                 [self.fake_B_sample, self.L1_loss],
-                feed_dict={self.real_data: sample_image}
+                feed_dict={self.real_data: sample_image, self.l1_lambda_holder: self.l1_lamb_cur,
+                self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur}
             )
             L1_loss_counter = L1_loss_counter + L1_loss
         L1_loss_avg = L1_loss_counter / idx
@@ -576,7 +604,8 @@ class pix2pix(object):
             print("sampling image ", idx)
             samples = self.sess.run(
                 self.fake_B_sample,
-                feed_dict={self.real_data: sample_image}
+                feed_dict={self.real_data: sample_image, self.l1_lambda_holder: self.l1_lamb_cur,
+                self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur}
             )
             input_stat_list, output_stat_list = save_images(samples, sample_image, [self.batch_size, 1],
                         './{}/{}_{}/test_{:04d}.jpg'.format(self.test_dir, self.task, self.mode, idx),
