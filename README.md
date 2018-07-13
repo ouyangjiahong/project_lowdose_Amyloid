@@ -19,6 +19,7 @@ TensorFlow implementation of [Image-to-Image Translation Using Conditional Adver
 - Download VGG pretrained models
 ```bash
 git clone https://github.com/tensorflow/models
+wget http://download.tensorflow.org/models/vgg_16_2016_08_28.tar.gz
 ```
 Change the path in code main.py
 sys.path.append("../models/research/slim")
