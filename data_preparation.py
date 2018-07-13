@@ -15,6 +15,7 @@ parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/Amyloid
 parser.add_argument('--norm', dest='norm', action='store_false', help='use Frobenius norm or nor')
 parser.set_defaults(norm=True)
 parser.add_argument('--dimension', dest='dimension', default='2', help='2, 2.5, 3')
+parser.add_argument('--block', dest='block', type=int, default=4, help='2.5D data will be 2*block+1')
 
 args = parser.parse_args()
 set = args.set
@@ -22,6 +23,7 @@ dir_data_ori = args.dir_data_ori
 dir_data_dst = args.dir_data_dst
 norm = args.norm
 dimension = args.dimension
+block = args.block
 
 
 # stanford machine
@@ -165,4 +167,4 @@ for index_data in range(num_dataset_train):
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
-                                            ext_data, dimension)
+                                            ext_data, dimension, block)
