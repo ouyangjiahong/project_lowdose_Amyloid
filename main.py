@@ -19,6 +19,8 @@ parser.add_argument('--is_lc', dest='is_lc', action='store_true', help='use cont
 parser.set_defaults(is_lc=False)
 parser.add_argument('--is_ls', dest='is_ls', action='store_true', help='use style loss or not, default:false')
 parser.set_defaults(is_ls=False)
+parser.add_argument('--is_finetune', dest='is_finetune', action='store_true', help='use fine-tune VGG16 on amyloid updake, default:false')
+parser.set_defaults(is_finetune=False)
 parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
 parser.add_argument('--c_lambda', dest='c_lambda', type=float, default=1.0, help='weight on content loss term in objective')
 parser.add_argument('--s_lambda', dest='s_lambda', type=float, default=1.0, help='weight on style loss term in objective')
@@ -59,7 +61,7 @@ args = parser.parse_args()
 
 def main(_):
     # checking exceptions
-    if not (args.is_gan or args.is_l1 or args.is_lc or args.is_ls):
+    if args.phase == 'train' and not (args.is_gan or args.is_l1 or args.is_lc or args.is_ls):
         raise ValueError('Need to choose at least one loss objective')
     if args.feat_match and not args.is_gan:
         raise ValueError('Only can use feature matching when using GAN loss')
@@ -74,7 +76,7 @@ def main(_):
 
     with tf.Session(config=config) as sess:
         model = pix2pix(sess, phase=args.phase, task=args.task, residual=args.residual,
-                        is_gan=args.is_gan, is_l1=args.is_l1, is_lc=args.is_lc, is_ls=args.is_ls,
+                        is_gan=args.is_gan, is_l1=args.is_l1, is_lc=args.is_lc, is_ls=args.is_ls, is_finetune=args.is_finetune,
                         dataset_dir=args.dataset_dir, validation_split=args.validation_split, log_dir=args.log_dir,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir, feat_match=args.feat_match,
                         test_dir=args.test_dir, epochs=args.epochs, batch_size=args.batch_size, block=args.block,

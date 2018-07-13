@@ -19,7 +19,7 @@ class pix2pix(object):
 
     def __init__(self, sess, phase, dataset_dir, validation_split=0.1,
                     task='lowdose', residual=False, is_gan=False, is_l1=False,
-                    is_lc=False, is_ls=False,
+                    is_lc=False, is_ls=False, is_finetune=False,
                     checkpoint_dir=None, sample_dir=None, log_dir=None,
                     test_dir=None, epochs=200, batch_size=1, feat_match=False,
                     dimension=2, block=4, input_size=256, output_size=256,
@@ -39,6 +39,7 @@ class pix2pix(object):
         self.is_lc = is_lc
         self.is_ls = is_ls
         self.feat_match = feat_match
+        self.is_finetune = is_finetune
 
         self.mode = ''
         if is_gan:
@@ -141,45 +142,55 @@ class pix2pix(object):
 
         # resize from 256 to 224 by central cropping
         real_B_224 = 128*tf.image.resize_image_with_crop_or_pad(self.real_B, 224, 224)
+        real_B_224 = tf.tile(real_B_224, [1,1,1,3])
         fake_B_224 = 128*tf.image.resize_image_with_crop_or_pad(self.fake_B, 224, 224)
+        fake_B_224 = tf.tile(fake_B_224, [1,1,1,3])
 
         # calculate the output of each layers for both real and fake image
         content_layer_dict = ['conv1/conv1_2', 'conv2/conv2_2', 'conv3/conv3_3', 'conv4/conv4_3']
-        content_weight = [1e7, 1e7, 1e10, 1e10]
+        # content_weight = [1e7, 1e7, 1e10, 1e10]
+        content_weight = [1, 1, 1, 1]
         style_layer_dict = ['conv1/conv1_2', 'conv2/conv2_2', 'conv3/conv3_3', 'conv4/conv4_3']
         style_weight = [1, 1, 1, 1]
 
+        if self.is_finetune:
+            pretrained_model_path = 'vgg_16_amyloid_ckpt/'
+        else:
+            pretrained_model_path = 'vgg_16.ckpt'
         with tf.variable_scope("calculator") as scope:
             with tf.contrib.slim.arg_scope(vgg.vgg_arg_scope()):
-                logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=0, scope='vgg_16')
-                # tf.get_variable_scope().reuse_variables()
-                logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=0, scope='vgg_16_1')
+                # load pretrained vgg16 models
+                logits, layers_real = self.vgg(real_B_224, is_training=False, num_classes=2, scope='real/vgg_16')
+                tf.contrib.framework.init_from_checkpoint(pretrained_model_path, {'vgg_16/':'calculator/real/vgg_16/'})
+
+                logits, layers_fake = self.vgg(fake_B_224, is_training=False, num_classes=2, scope='fake/vgg_16')
+                tf.contrib.framework.init_from_checkpoint(pretrained_model_path, {'vgg_16/':'calculator/fake/vgg_16/'})
+                print('load VGG16 pretrained model')
+
                 # content loss
-                content_loss = tf.constant(0)
-                style_loss = tf.constant(0)
+                content_loss = tf.constant(0.0)
+                style_loss = tf.constant(0.0)
                 if self.is_lc:
                     for i, layer_name in enumerate(content_layer_dict):
-                        layer_real = layers_real['calculator/vgg_16/'+layer_name]
-                        layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
+                        layer_real = layers_real['calculator/real/vgg_16/'+layer_name]
+                        layer_fake = layers_fake['calculator/fake/vgg_16/'+layer_name]
                         bs, h, w, c = map(lambda i: i.value, layer_real.get_shape())
                         size = bs * h * w * c
-
                         content_loss += content_weight[i] * tf.nn.l2_loss((layer_real - layer_fake) / float(size))
 
                 # style Loss
                 if self.is_ls:
-                    print(layers_fake)
+                    # print(layers_fake)
                     for i, layer_name in enumerate(content_layer_dict):
-                        layer_real = layers_real['calculator/vgg_16/'+layer_name]
+                        layer_real = layers_real['calculator/real/vgg_16/'+layer_name]
                         bs, h, w, c = map(lambda i: i.value, layer_real.get_shape())
                         size = bs * h * w * c
                         layer_real = tf.reshape(layer_real, [bs, h * w, c])
                         gram_real = tf.matmul(tf.transpose(layer_real, perm=[0,2,1]), layer_real) / size
-                        layer_fake = layers_fake['calculator/vgg_16_1/'+layer_name]
+                        layer_fake = layers_fake['calculator/fake/vgg_16/'+layer_name]
                         layer_fake = tf.reshape(layer_fake, [bs, h * w, c])
                         gram_fake = tf.matmul(tf.transpose(layer_fake, perm=[0,2,1]), layer_fake) / size
-
-                        style_loss += style_weight[i] * tf.nn.l2_loss(gram_real - gram_fake)
+                        style_loss += style_weight[i] * tf.nn.l2_loss(gram_real - gram_fake) / (4*c*c)
 
         return content_loss, style_loss
 
