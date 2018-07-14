@@ -8,6 +8,8 @@ import random
 import pprint
 import scipy.misc
 import numpy as np
+import pdb
+from glob import glob
 from skimage.measure import compare_mse, compare_nrmse, compare_psnr, compare_ssim
 from time import gmtime, strftime
 
@@ -19,7 +21,7 @@ get_stddev = lambda x, k_h, k_w: 1/math.sqrt(k_w*k_h*x.get_shape()[-1])
 # new added functions for pix2pix
 
 def load_data(image_path, is_test=False, data_type='npz', task='lowdose', dimension=2):
-    img_A, img_B = load_image(image_path, data_type, task, dimension)
+    img_A, img_B, max_value_A, max_value_B = load_image(image_path, data_type, task, dimension)
     # img_A, img_B = preprocess_A_and_B(img_A, img_B, flip=flip, is_test=is_test)
 
     if data_type != 'npz':
@@ -29,7 +31,7 @@ def load_data(image_path, is_test=False, data_type='npz', task='lowdose', dimens
 
     img_AB = np.concatenate((img_A, img_B), axis=2)
     # img_AB shape: (fine_size, fine_size, input_c_dim + output_c_dim)
-    return img_AB
+    return img_AB, [max_value_A, max_value_B]
 
 def load_image(image_path, data_type, task, dimension):
     if data_type == 'npz':
@@ -47,13 +49,20 @@ def load_image(image_path, data_type, task, dimension):
                 img_A = np.expand_dims(img_A, 2)
 
         # normalize by the max value of each slice (move to data preparation)
+        if dimension == 2.5:
+            idx = img_A.shape[2] // 2
+        else:
+            idx = 0
         for i in range(img_A.shape[2]):
             max_value = np.amax(img_A[:,:,i])
             if max_value == 0:
                 max_value = 1
             img_A[:,:,i] = 2 * img_A[:,:,i] / max_value - 1
+            if i == idx:
+                max_value_A = max_value
 
-        img_B = 2 * img_B / np.amax(img_B) - 1
+        max_value_B = np.amax(img_B)
+        img_B = 2 * img_B / max_value_B - 1
 
     else:                   # .jpg .png input and output concatenate
         input_img = imread(image_path)
@@ -61,7 +70,7 @@ def load_image(image_path, data_type, task, dimension):
         w2 = int(w/2)
         img_B = input_img[:, 0:w2]
         img_A = input_img[:, w2:w]
-    return img_A, img_B
+    return img_A, img_B, max_value_A, max_value_B
 
 def preprocess_A_and_B(img_A, img_B, flip=True, is_test=False):
     if not is_test:
@@ -75,9 +84,9 @@ def preprocess_A_and_B(img_A, img_B, flip=True, is_test=False):
 def get_image(image_path, image_size, is_crop=True, resize_w=64, is_grayscale = False):
     return transform(imread(image_path, is_grayscale), image_size, is_crop, resize_w)
 
-def save_images(images, reals, size, image_path, data_type, is_stat):
+def save_images(images, reals, size, image_path, data_type, is_stat, is_dicom=False, max_value=None):
     return merge(inverse_transform(images, data_type),
-                    inverse_transform(reals, data_type), size, data_type, image_path, is_stat)
+                    inverse_transform(reals, data_type), size, data_type, image_path, is_stat, is_dicom, max_value)
 
 def imread(path, is_grayscale = False):
     if (is_grayscale):
@@ -85,11 +94,13 @@ def imread(path, is_grayscale = False):
     else:
         return scipy.misc.imread(path).astype(np.float)
 
-def merge(images, reals, size, data_type, path, is_stat=False):
+def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, max_value=None):
     if data_type == 'npz':
         h, w = images.shape[1], images.shape[2]
         output_stat_list = []
         input_stat_list = []
+        output_stat_rev_list = []
+        input_stat_rev_list = []
         for idx, image in enumerate(images):
             # save generatove image
             lowdose = reals[idx][:,:,0]
@@ -119,8 +130,6 @@ def merge(images, reals, size, data_type, path, is_stat=False):
             target_img = target
             target_img = scipy.misc.bytescale(target*255, low=int(np.amin(target)*255.0), high=int(np.amax(target)*255.0))
             scipy.misc.imsave(img_path, target_img)
-            # npz_path = path[:-4] + '_' + str(idx) + '_target.npy'
-            # np.save(npz_path, target)
 
             # save diff
             diff = abs(image - target)
@@ -133,10 +142,17 @@ def merge(images, reals, size, data_type, path, is_stat=False):
 
             if is_stat == True:
                 input = real[:,:,0]
-                output_stat = compare_stat(image, target)
+                output_stat = compare_stat(image, target, max_value[idx])
                 output_stat_list.append(output_stat)
-                input_stat = compare_stat(input, target)
+                input_stat = compare_stat(input, target, max_value[idx])
                 input_stat_list.append(input_stat)
+
+            # multiply by max_value, save npy first
+            if is_dicom == True:
+                npz_path = path[:-4] + '_' + str(idx) + '_target.npy'
+                np.save(npz_path, max_value[idx][1]*target)
+                npz_path = path[:-4] + '_' + str(idx) + '_output.npy'
+                np.save(npz_path, max_value[idx][0]*image)
 
         return input_stat_list, output_stat_list
     else:
@@ -146,7 +162,7 @@ def merge(images, reals, size, data_type, path, is_stat=False):
             img_path = path[:-4] + '_' + str(idx) + path[-4:]
             scipy.misc.imsave(img_path, image)
 
-def compare_stat(im_pred, im_gt):
+def compare_stat(im_pred, im_gt, max_value):
     im_pred = np.array(im_pred).astype(np.float).flatten()
     im_gt = np.array(im_gt).astype(np.float).flatten()
     mask=np.abs(im_gt.flatten())>0
@@ -175,6 +191,7 @@ def compare_stat(im_pred, im_gt):
         score_ismrm = float('nan')
 
     return {'rmse':rmse_pred,'psnr':psnr_pred,'ssim':ssim_pred,'score_ismrm':score_ismrm}
+    # return {'rmse':10*max_value[1]*rmse_pred,'psnr':10*np.log10(100*max_value[1])+psnr_pred,'ssim':ssim_pred,'score_ismrm':score_ismrm}
 
 
 def transform(image, npx=64, is_crop=True, resize_w=64):
@@ -191,3 +208,36 @@ def inverse_transform(images, data_type):
         return images
     else:
         return (images+1.)/2.
+
+def save_dicom(dicom_path, dict_path, ori_path, dst_path, set='output'):
+    sample_files = glob('{}/test/*.npz'.format(ori_path))
+    num = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
+    sample_files = [x for (y, x) in sorted(zip(num, sample_files))]
+
+    output_files = glob('{}/*{}.npy'.format(dst_path, set))
+    output_files = sorted(output_files)
+    if len(sample_files) != len(output_files):
+        sample_files = sample_files[:len(output_files)]
+
+    dict_sample_output = {sample_files[i]:output_files[i] for i in range(len(output_files))}
+    list_subject_sample = np.load(dict_path)
+    subject_list = list_subject_sample['subject_list']
+    subject_sample_list = list_subject_sample['dict']   # sub_id, lowdose norm, fulldose norm
+    idx = 0
+
+    subj_num = subject_sample_list.shape[0]
+    for id in range(subj_num):
+        subj_id = subject_sample_list[idx][0]
+        norm = subject_sample_list[idx][1]
+        slices_list = []
+        for i in range(idx, len(output_files)):
+            if subject_sample_list[i][0] != subj_id:       # check str or int
+                continue
+            else:
+                output = np.load(output_files[idx])
+                slices_list.append(output)
+                idx = idx + 1
+        volume = np.stack(slices_list, axis=2)   # check shape
+        volume = volume * norm
+        pdb.set_trace()
+        # add read header and save dicom

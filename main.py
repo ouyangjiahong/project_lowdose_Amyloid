@@ -56,7 +56,8 @@ parser.add_argument('--continue_train', dest='continue_train', action="store_tru
 parser.set_defaults(continue_train=False)
 parser.add_argument('--data_type', dest='data_type', default='npz', help='type of data, jpg or png or npz')
 parser.add_argument('--g_times', dest='g_times', type=int, default=1, help='train how many times of G for training D once')
-
+parser.add_argument('--is_dicom', dest='is_dicom', action="store_true", help='whether save dicom in testing phase')
+parser.set_defaults(is_dicom=False)
 args = parser.parse_args()
 
 def main(_):
@@ -85,7 +86,7 @@ def main(_):
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
                         save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,
                         continue_train=args.continue_train, L1_lamb=args.L1_lambda, c_lamb=args.c_lambda, s_lamb=args.s_lambda,
-                        data_type=args.data_type)
+                        data_type=args.data_type, is_dicom=args.is_dicom)
 
         if args.phase == 'train':
             model.train()

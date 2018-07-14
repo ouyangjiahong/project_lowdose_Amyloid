@@ -25,7 +25,7 @@ class pix2pix(object):
                     dimension=2, block=4, input_size=256, output_size=256,
                     input_c_dim=3, output_c_dim=1, gf_dim=64, g_times=1,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
-                    save_best=False, print_freq=50, sample_freq=100,
+                    save_best=False, print_freq=50, sample_freq=100, is_dicom=False,
                     continue_train=False, L1_lamb=100, c_lamb=100, s_lamb=100, data_type='npz'):
 
         """
@@ -95,6 +95,7 @@ class pix2pix(object):
         self.sample_freq = sample_freq
         self.continue_train = continue_train
         self.data_type = data_type
+        self.is_dicom = is_dicom
 
         # batch normalization : deals with poor initialization helps gradient flow
         self.d_bn1 = batch_norm(name='d_bn1')
@@ -286,6 +287,7 @@ class pix2pix(object):
         data = np.random.choice(glob('{}/test/*.{}'.format(self.dataset_dir, self.data_type)), self.batch_size)
         sample = [load_data(sample_file, data_type=self.data_type, task=self.task, \
                             dimension=self.dimension) for sample_file in data]
+        sample = [b[0] for b in sample]
         sample_images = np.array(sample).astype(np.float32)
         return sample_images
 
@@ -347,6 +349,7 @@ class pix2pix(object):
             for idx in xrange(0, batch_idxs):
                 batch_files = training_data[idx*self.batch_size:(idx+1)*self.batch_size]
                 batch = [load_data(batch_file, data_type=self.data_type, task=self.task, dimension=self.dimension) for batch_file in batch_files]
+                batch = [b[0] for b in batch]
                 batch_images = np.array(batch).astype(np.float32)
 
                 # Update D network
@@ -560,6 +563,7 @@ class pix2pix(object):
         print("Loading validation images ...")
         sample = [load_data(sample_file, is_test=True, data_type=self.data_type, \
                             task=self.task, dimension=self.dimension) for sample_file in sample_files]
+        sample = [b[0] for b in sample]
 
         sample_images = np.array(sample).astype(np.float32)
 
@@ -599,6 +603,8 @@ class pix2pix(object):
         print("Loading testing images ...")
         sample = [load_data(sample_file, is_test=True, data_type=self.data_type, \
                             task=self.task, dimension=self.dimension) for sample_file in sample_files]
+        max_value = [b[1] for b in sample]
+        sample = [b[0] for b in sample]
 
         sample_images = np.array(sample).astype(np.float32)
 
@@ -622,12 +628,13 @@ class pix2pix(object):
             print("sampling image ", idx)
             samples = self.sess.run(
                 self.fake_B_sample,
-                feed_dict={self.real_data: sample_image, self.l1_lambda_holder: self.l1_lamb_cur,
-                self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur}
+                feed_dict={self.real_data: sample_image, self.l1_lambda_holder: self.L1_lamb,
+                self.lc_lambda_holder: self.c_lamb, self.ls_lambda_holder: self.s_lamb}
             )
-            input_stat_list, output_stat_list = save_images(samples, sample_image, [self.batch_size, 1],
+            input_stat_list, output_stat_list= save_images(samples, sample_image, [self.batch_size, 1],
                         './{}/{}_{}/test_{:04d}.jpg'.format(self.test_dir, self.task, self.mode, idx),
-                        data_type=self.data_type, is_stat=True)
+                        data_type=self.data_type, is_stat=True, is_dicom=self.is_dicom,
+                        max_value=max_value[self.batch_size*i:self.batch_size*(i+1)])
             input_stat_all.append(input_stat_list)
             output_stat_all.append(output_stat_list)
         input_stat_all = [y for x in input_stat_all for y in x]
@@ -636,3 +643,6 @@ class pix2pix(object):
         print('prediction average metrics:', {k:np.nanmean([x[k] for x in output_stat_all]) for k in output_stat_all[0].keys()})
         print('input variance metrics:', {k:np.nanvar([x[k] for x in input_stat_all]) for k in input_stat_all[0].keys()})
         print('prediction variance metrics:', {k:np.nanvar([x[k] for x in output_stat_all]) for k in output_stat_all[0].keys()})
+
+        save_dicom('dicom/', 'test_subject_sample.npz', self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), set='output')
+        save_dicom('dicom/', 'test_subject_sample.npz', self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), set='target')

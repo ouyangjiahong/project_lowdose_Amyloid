@@ -145,26 +145,37 @@ generate train data
 list_train_input = []
 list_train_gt = []
 index_sample_total = 0
+list_subject_sample = []
 for index_data in range(num_dataset_train):
     # directory
     list_data_train_input = []
+    lowdose_norm = 0
+    fulldose_norm = 0
     for path_train_input in list_dataset_train[index_data]['input']:
         # load data
-        data_train_input = prepare_data_from_nifti(path_train_input, list_augments, scale_by_norm=norm)
+        data_train_input, f_norm = prepare_data_from_nifti(path_train_input, list_augments, scale_by_norm=norm)
         list_data_train_input.append(data_train_input)
+        if lowdose_norm == 0:
+            lowdose_norm = f_norm
     data_train_input = np.concatenate(list_data_train_input, axis=-1)
 
 
     # load data ground truth
     path_train_gt = list_dataset_train[index_data]['gt']
-    data_train_gt = prepare_data_from_nifti(path_train_gt, list_augments, scale_by_norm=norm)
-    # append
-    # list_train_input.append(data_train_input)
-    # list_train_gt.append(data_train_gt)
+    data_train_gt, fulldose_norm = prepare_data_from_nifti(path_train_gt, list_augments, scale_by_norm=norm)
 
+    start_idx = index_sample_total
     # export
     index_sample_total = export_data_to_npz(data_train_input,
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
                                             ext_data, dimension, block=block)
+
+    for i in range(start_idx, index_sample_total):
+        list_subject_sample.append([using_set[index_data], lowdose_norm, fulldose_norm])
+
+dict = np.array(list_subject_sample)
+subject_list = np.array(using_set)
+np.savez_compressed(set+'_subject_sample.npz', dict=dict, subject_list=subject_list)
+pdb.set_trace()

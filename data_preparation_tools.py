@@ -41,7 +41,8 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
 
     # scale
     if scale_by_norm:
-        data_load = data_load / np.linalg.norm(data_load.flatten())
+        forbenius_norm = np.linalg.norm(data_load.flatten())
+        data_load = data_load / forbenius_norm
         # for i in range(data_load.shape[0]):
         #     img = data_load[i,:,:,:]
         #     max_value = np.amax(img)
@@ -63,7 +64,7 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
             list_data.append(data_augmented.reshape(data_load.shape))
         data_load = np.concatenate(list_data, axis = 0)
 
-    return data_load #, norm_factor # KC 20171018
+    return data_load, forbenius_norm #, norm_factor # KC 20171018
 
 
 def export_data_to_npz(data_train_input, data_train_gt,dir_numpy_compressed, \
