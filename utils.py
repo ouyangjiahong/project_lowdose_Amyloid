@@ -6,9 +6,11 @@ import math
 import json
 import random
 import pprint
+import dicom
 import scipy.misc
 import numpy as np
 import pdb
+import os
 from glob import glob
 from skimage.measure import compare_mse, compare_nrmse, compare_psnr, compare_ssim
 from time import gmtime, strftime
@@ -149,6 +151,7 @@ def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, m
 
             # multiply by max_value, save npy first
             if is_dicom == True:
+                # pdb.set_trace()
                 npz_path = path[:-4] + '_' + str(idx) + '_target.npy'
                 np.save(npz_path, max_value[idx][1]*target)
                 npz_path = path[:-4] + '_' + str(idx) + '_output.npy'
@@ -209,7 +212,23 @@ def inverse_transform(images, data_type):
     else:
         return (images+1.)/2.
 
-def save_dicom(dicom_path, dict_path, ori_path, dst_path, set='output'):
+def save_dicom(dicom_path, dict_path, ori_path, dst_path, header_path, set='output', block=4):
+    if not os.path.exists(dicom_path):
+        os.makedirs(dicom_path)
+
+    '''
+    Read in dicoms for header info and sort
+    '''
+
+    # dcmlist = [f for f in os.listdir(result_path+subj_id+'/Full_Dose_40') if os.path.isfile(os.path.join(result_path+subj_id+'/Full_Dose_40', f))]
+    #
+    # import re
+    # r = re.compile(r'\_sl(\d+)\.s')
+    # def key_func(m):
+    #     return int(r.search(m).group(1))
+    #
+    # dcmlist_sorted = sorted(dcmlist, key=key_func)
+
     sample_files = glob('{}/test/*.npz'.format(ori_path))
     num = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
     sample_files = [x for (y, x) in sorted(zip(num, sample_files))]
@@ -225,7 +244,7 @@ def save_dicom(dicom_path, dict_path, ori_path, dst_path, set='output'):
     subject_sample_list = list_subject_sample['dict']   # sub_id, lowdose norm, fulldose norm
     idx = 0
 
-    subj_num = subject_sample_list.shape[0]
+    subj_num = len(subject_list)
     for id in range(subj_num):
         subj_id = subject_sample_list[idx][0]
         norm = subject_sample_list[idx][1]
@@ -238,6 +257,27 @@ def save_dicom(dicom_path, dict_path, ori_path, dst_path, set='output'):
                 slices_list.append(output)
                 idx = idx + 1
         volume = np.stack(slices_list, axis=2)   # check shape
+        # pdb.set_trace()
         volume = volume * norm
-        pdb.set_trace()
-        # add read header and save dicom
+        # pdb.set_trace()
+
+        # read header and save dicom
+        subj_id = str(int(subj_id))
+        if not os.path.exists(dicom_path+subj_id):
+            os.makedirs(dicom_path+subj_id)
+        if not os.path.exists(dicom_path+subj_id+'/'+set):
+            os.makedirs(dicom_path+subj_id+'/'+set)
+        for i in range(volume.shape[2]):
+            im_pred = np.squeeze(volume[:,:,i]).T
+            im_pred_rot = zip(*im_pred[::-1])
+            im_pred = zip(*im_pred_rot[::-1])
+            im_pred = np.asarray(im_pred)
+            im_pred_flip = np.flip(im_pred, 1)
+            header_name = header_path+subj_id+'/Full_Dose_40/_bin1_sl'+str(i+block+1)+'.sdcopen'
+            testdcm = dicom.read_file(header_name)
+            im_pred_fullrange = 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
+            im_pred_fullrange[im_pred_fullrange < 0] = 0
+            im_pred_fullrange[im_pred_fullrange > 32767] = 32767
+            testdcm.PixelData = im_pred_fullrange.astype(np.int16).tostring()
+            testdcm.save_as(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(i+block+1)+'.sdcopen')
+            print(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(i+block+1)+'.sdcopen')

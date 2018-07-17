@@ -177,5 +177,10 @@ for index_data in range(num_dataset_train):
 
 dict = np.array(list_subject_sample)
 subject_list = np.array(using_set)
-np.savez_compressed(set+'_subject_sample.npz', dict=dict, subject_list=subject_list)
-pdb.set_trace()
+# pdb.set_trace()
+if dimension == '2.5':
+    npz_name = str(2*block+1)+'block_'+set+'_subject_sample.npz'
+elif dimension == '2':
+    npz_name = '2D_'+set+'_subject_sample.npz'
+np.savez_compressed(npz_name, dict=dict, subject_list=subject_list)
+# pdb.set_trace()

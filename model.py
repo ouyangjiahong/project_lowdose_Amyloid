@@ -644,5 +644,6 @@ class pix2pix(object):
         print('input variance metrics:', {k:np.nanvar([x[k] for x in input_stat_all]) for k in input_stat_all[0].keys()})
         print('prediction variance metrics:', {k:np.nanvar([x[k] for x in output_stat_all]) for k in output_stat_all[0].keys()})
 
+        
         save_dicom('dicom/', 'test_subject_sample.npz', self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), set='output')
         save_dicom('dicom/', 'test_subject_sample.npz', self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), set='target')
