@@ -644,6 +644,14 @@ class pix2pix(object):
         print('input variance metrics:', {k:np.nanvar([x[k] for x in input_stat_all]) for k in input_stat_all[0].keys()})
         print('prediction variance metrics:', {k:np.nanvar([x[k] for x in output_stat_all]) for k in output_stat_all[0].keys()})
 
-        
-        save_dicom('dicom/', 'test_subject_sample.npz', self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), set='output')
-        save_dicom('dicom/', 'test_subject_sample.npz', self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), set='target')
+        if self.is_dicom:
+            if self.dimension == 2.5:
+                dicom_path = 'dicom/'+self.task+'_'+str(2*self.block+1)+'block_'+self.mode+'/'
+                dict_path = str(2*self.block+1)+'block_test_subject_sample.npz'
+            else:
+                dicom_path = 'dicom/'+self.task+'_'+self.mode+'/'
+                dict_path = '2D_test_subject_sample.npz'
+            header_path = '/data3/Amyloid/temp/'
+
+            save_dicom(dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)
+            save_dicom(dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)

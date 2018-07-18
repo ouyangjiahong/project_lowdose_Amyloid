@@ -275,8 +275,9 @@ def save_dicom(dicom_path, dict_path, ori_path, dst_path, header_path, set='outp
             im_pred_flip = np.flip(im_pred, 1)
             header_name = header_path+subj_id+'/Full_Dose_40/_bin1_sl'+str(i+block+1)+'.sdcopen'
             testdcm = dicom.read_file(header_name)
-            im_pred_fullrange = 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
+            im_pred_fullrange = 0.9 * 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
             im_pred_fullrange[im_pred_fullrange < 0] = 0
+            print(np.amax(im_pred_fullrange))
             im_pred_fullrange[im_pred_fullrange > 32767] = 32767
             testdcm.PixelData = im_pred_fullrange.astype(np.int16).tostring()
             testdcm.save_as(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(i+block+1)+'.sdcopen')
