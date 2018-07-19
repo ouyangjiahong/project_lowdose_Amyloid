@@ -200,13 +200,13 @@ class pix2pix(object):
         return content_loss, style_loss
 
     def feature_matching(self):
-        self.g_loss = 0
-        for i in range(4):
+        self.feat_match_loss = []
+        for i in range(len(self.D_h_all)):
             self.D_hi_diff = self.D_h_all[i] - self.D_h_all_[i]
             # print(self.D_hi_diff)
             size = reduce(mul, (d.value for d in self.D_hi_diff.get_shape()), 1)
-            self.g_loss += tf.nn.l2_loss(self.D_hi_diff) / size
-        return self.g_loss
+            self.feat_match_loss.append(tf.nn.l2_loss(self.D_hi_diff) / size)
+        return self.feat_match_loss
 
     def build_model(self):
         self.real_data = tf.placeholder(tf.float32,
@@ -232,18 +232,21 @@ class pix2pix(object):
         self.fake_B_sum = tf.summary.image("fake_B", self.fake_B)
         self.real_B_sum = tf.summary.image("real_B", self.real_B)
 
-        self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
-        self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        # self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
+        # self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        self.d_loss_real = tf.reduce_mean(-tf.log(self.D + EPS))
+        self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
         self.d_loss = self.d_loss_real + self.d_loss_fake
 
         # add feature matching here
         if self.feat_match == False:
-            self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
+            # self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
+            self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
+            self.feature_matching()
         else:
-            self.g_loss = self.feature_matching()
+            self.g_loss = sum([self.feature_matching()[1]])
+        # self.feat_match_loss.append(tf.nn.l2_loss(self.D_logits-self.D_logits_))
 
-        # self.d_loss_real = tf.reduce_mean(-tf.log(self.D + EPS))
-        # self.d_loss_fake = tf.reduce_mean(-tf.log(1 - self.D_ + EPS))
         # self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
 
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
@@ -273,6 +276,13 @@ class pix2pix(object):
         self.L1_loss_sum = tf.summary.scalar("L1_loss", self.L1_loss)
         self.content_loss_sum = tf.summary.scalar("content_loss", self.content_loss)
         self.style_loss_sum = tf.summary.scalar("style_loss", self.style_loss)
+
+        self.feat_match_loss_sum_in = tf.summary.scalar("input", self.L1_loss)
+        self.feat_match_loss_sum_h0 = tf.summary.scalar("h0", self.feat_match_loss[0])
+        self.feat_match_loss_sum_h1 = tf.summary.scalar("h1", self.feat_match_loss[1])
+        self.feat_match_loss_sum_h2 = tf.summary.scalar("h2", self.feat_match_loss[2])
+        self.feat_match_loss_sum_h3 = tf.summary.scalar("h3", self.feat_match_loss[3])
+        # self.feat_match_loss_sum_h4 = tf.summary.scalar("h4", self.feat_match_loss[4])
 
         t_vars = tf.trainable_variables()
 
@@ -317,6 +327,9 @@ class pix2pix(object):
         self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum, self.content_loss_sum, self.style_loss_sum,
             self.fake_B_sum, self.real_B_sum, self.d_loss_fake_sum, self.g_loss_sum, self.g_loss_all_sum])
         self.d_sum = tf.summary.merge([self.d_sum, self.d_loss_real_sum, self.d_loss_sum])
+        self.feat_match_sum = tf.summary.merge([self.feat_match_loss_sum_in, self.feat_match_loss_sum_h0,
+                                        self.feat_match_loss_sum_h1, self.feat_match_loss_sum_h2,
+                                        self.feat_match_loss_sum_h3])
         file_path = self.log_dir + '/' + self.task + '_' + self.mode
         self.writer = tf.summary.FileWriter(file_path, self.sess.graph)
 
@@ -361,7 +374,7 @@ class pix2pix(object):
                 # Update G network
                 # Run g_optim g_times to make sure that d_loss does not go to zero
                 for g_t in range(self.g_times):
-                    _, summary_str_g = self.sess.run([g_optim, self.g_sum],
+                    _, summary_str_g, summary_str_feat = self.sess.run([g_optim, self.g_sum, self.feat_match_sum],
                                                 feed_dict={ self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
                                                 self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur })
 
@@ -409,9 +422,9 @@ class pix2pix(object):
                         g_loss: %.8f, L1_loss: %.8f, content_loss: %.8f, style_loss: %.8f" % (epoch, idx, batch_idxs,
                             time.time() - start_time, errD_fake+errD_real, errG_all, errG, errL1, errC, errS))
 
-                    if self.is_gan:
-                        self.writer.add_summary(summary_str_d, counter)
+                    self.writer.add_summary(summary_str_d, counter)
                     self.writer.add_summary(summary_str_g, counter)
+                    self.writer.add_summary(summary_str_feat, counter)
 
                 if counter % self.sample_freq == 1:
                     self.sample_model(self.sample_dir, epoch, idx)
@@ -443,8 +456,9 @@ class pix2pix(object):
             h2 = lrelu(self.d_bn2(conv2d(h1, self.df_dim*4, name='d_h2_conv')))
             # h2 is (32x 32 x self.df_dim*4)
             h3 = lrelu(self.d_bn3(conv2d(h2, self.df_dim*8, d_h=1, d_w=1, name='d_h3_conv')))
-            # h3 is (16 x 16 x self.df_dim*8)
-            h4 = linear(tf.reshape(h3, [self.batch_size, -1]), 1, 'd_h3_lin')
+            # h3 is (32x 32 x self.df_dim*8)
+            h4 = conv2d(h3, 1, d_h=1, d_w=1, name='d_h4_conv')
+            # h4 is (32 x 32 x 1)
 
             return tf.nn.sigmoid(h4), h4, [h0,h1,h2,h3]
 
