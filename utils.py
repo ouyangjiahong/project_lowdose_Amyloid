@@ -216,19 +216,6 @@ def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_pa
     if not os.path.exists(dicom_path):
         os.makedirs(dicom_path)
 
-    '''
-    Read in dicoms for header info and sort
-    '''
-
-    # dcmlist = [f for f in os.listdir(result_path+subj_id+'/Full_Dose_40') if os.path.isfile(os.path.join(result_path+subj_id+'/Full_Dose_40', f))]
-    #
-    # import re
-    # r = re.compile(r'\_sl(\d+)\.s')
-    # def key_func(m):
-    #     return int(r.search(m).group(1))
-    #
-    # dcmlist_sorted = sorted(dcmlist, key=key_func)
-
     sample_files = glob('{}/test/*.npz'.format(ori_path))
     num = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
     sample_files = [x for (y, x) in sorted(zip(num, sample_files))]

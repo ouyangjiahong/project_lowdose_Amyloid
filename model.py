@@ -39,7 +39,7 @@ class pix2pix(object):
         self.is_lc = is_lc
         self.is_ls = is_ls
         self.feat_match = feat_match
-        self.feat_macth_dynamic = feat_match_dynamic
+        self.feat_match_dynamic = feat_match_dynamic
         self.is_finetune = is_finetune
 
         self.mode = ''
@@ -286,6 +286,7 @@ class pix2pix(object):
         self.feat_match_loss_sum_h2 = tf.summary.scalar("feat/h2", self.feat_match_loss[1])
         self.feat_match_loss_sum_h3 = tf.summary.scalar("feat/h3", self.feat_match_loss[2])
         self.feat_match_loss_sum_h4 = tf.summary.scalar("feat/h4", self.feat_match_loss[3])
+        self.feat_match_loss_sum_num = tf.summary.scalar("feat/num", tf.reduce_sum(self.feat_match_flag_holder))
 
         t_vars = tf.trainable_variables()
 
@@ -331,7 +332,7 @@ class pix2pix(object):
         self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum, self.content_loss_sum, self.style_loss_sum,
             self.fake_B_sum, self.real_B_sum, self.d_loss_fake_sum, self.g_loss_sum, self.g_loss_all_sum])
         self.d_sum = tf.summary.merge([self.d_sum, self.d_loss_real_sum, self.d_loss_sum])
-        self.feat_match_sum = tf.summary.merge([self.feat_match_loss_sum_in,
+        self.feat_match_sum = tf.summary.merge([self.feat_match_loss_sum_num, self.feat_match_loss_sum_in,
                                         self.feat_match_loss_sum_h1, self.feat_match_loss_sum_h2,
                                         self.feat_match_loss_sum_h3, self.feat_match_loss_sum_h4])
         file_path = self.log_dir + '/' + self.task + '_' + self.mode
@@ -349,6 +350,11 @@ class pix2pix(object):
         self.l1_lamb_cur = self.L1_lamb
         self.lc_lamb_cur = 0
         self.ls_lamb_cur = 0
+        if self.feat_match_dynamic:
+            self.feat_match_flag = [0.0,0.0,0.0,0.0]
+        else:
+            self.feat_match_flag = [1.0,1.0,1.0,1.0]
+
 
         for epoch in xrange(self.epochs):
             # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
@@ -369,7 +375,7 @@ class pix2pix(object):
                 batch = [b[0] for b in batch]
                 batch_images = np.array(batch).astype(np.float32)
 
-                self.feat_match_flag = [1.0,1.0,1.0,1.0]
+                # self.feat_match_flag = [1.0,1.0,1.0,1.0]
                 self.feed_dict = {self.real_data:batch_images, self.l1_lambda_holder:self.l1_lamb_cur,
                 self.lc_lambda_holder:self.lc_lamb_cur, self.ls_lambda_holder:self.ls_lamb_cur,
                 self.feat_match_flag_holder:self.feat_match_flag}
@@ -433,6 +439,21 @@ class pix2pix(object):
 
             elif epoch % self.save_epoch_freq == 0:
                 self.save(self.checkpoint_dir, counter)
+
+            # change self.feat_match_flag based on L1 loss average
+            if self.feat_match_dynamic:
+                if L1_loss_avg < 0.015:
+                    print('add h4 layer')
+                    self.feat_match_flag = [1.0,1.0,1.0,1.0]
+                elif L1_loss_avg < 0.02:
+                    print('add h3 layer')
+                    self.feat_match_flag = [1.0,1.0,1.0,0.0]
+                elif L1_loss_avg < 0.025:
+                    print('add h2 layer')
+                    self.feat_match_flag = [1.0,1.0,0.0,0.0]
+                elif L1_loss_avg < 0.03:
+                    print('add h1 layer')
+                    self.feat_match_flag = [1.0,0.0,0.0,0.0]
 
     def discriminator(self, image, y=None, reuse=False):
 
