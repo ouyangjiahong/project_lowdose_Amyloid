@@ -26,6 +26,8 @@ parser.add_argument('--c_lambda', dest='c_lambda', type=float, default=1.0, help
 parser.add_argument('--s_lambda', dest='s_lambda', type=float, default=1.0, help='weight on style loss term in objective')
 parser.add_argument('--feat_match', dest='feat_match', action='store_true', help='use feature matching or not, default:false')
 parser.set_defaults(feat_match=False)
+parser.add_argument('--feat_match_dynamic', dest='feat_match_dynamic', action='store_true', help='use dynamic feature matching or not, default:false')
+parser.set_defaults(feat_match_dynamic=False)
 parser.add_argument('--dimension', dest='dimension', type=float, default=2, help='2, 2.5, 3')
 parser.add_argument('--block', dest='block', type=int, default=4, help='the input data contain 2*block+1 slices')
 parser.add_argument("--residual", dest='residual', action="store_true", help="add residual learning or not, default:false")
@@ -76,7 +78,7 @@ def main(_):
 
 
     with tf.Session(config=config) as sess:
-        model = pix2pix(sess, phase=args.phase, task=args.task, residual=args.residual,
+        model = pix2pix(sess, phase=args.phase, task=args.task, residual=args.residual, feat_match_dynamic=args.feat_match_dynamic,
                         is_gan=args.is_gan, is_l1=args.is_l1, is_lc=args.is_lc, is_ls=args.is_ls, is_finetune=args.is_finetune,
                         dataset_dir=args.dataset_dir, validation_split=args.validation_split, log_dir=args.log_dir,
                         checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir, feat_match=args.feat_match,

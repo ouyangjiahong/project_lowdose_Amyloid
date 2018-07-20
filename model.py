@@ -19,7 +19,7 @@ class pix2pix(object):
 
     def __init__(self, sess, phase, dataset_dir, validation_split=0.1,
                     task='lowdose', residual=False, is_gan=False, is_l1=False,
-                    is_lc=False, is_ls=False, is_finetune=False,
+                    is_lc=False, is_ls=False, is_finetune=False, feat_match_dynamic=False,
                     checkpoint_dir=None, sample_dir=None, log_dir=None,
                     test_dir=None, epochs=200, batch_size=1, feat_match=False,
                     dimension=2, block=4, input_size=256, output_size=256,
@@ -39,6 +39,7 @@ class pix2pix(object):
         self.is_lc = is_lc
         self.is_ls = is_ls
         self.feat_match = feat_match
+        self.feat_macth_dynamic = feat_match_dynamic
         self.is_finetune = is_finetune
 
         self.mode = ''
@@ -51,7 +52,9 @@ class pix2pix(object):
         if is_ls:
             self.mode += 'ls+'
         if feat_match:
-            self.mode += 'feat'
+            self.mode += 'feat+'
+        if feat_match_dynamic:
+            self.mode += 'dynamic'
         if self.mode[-1] == '+':
             self.mode = self.mode[:-1]
 
@@ -101,6 +104,7 @@ class pix2pix(object):
         self.d_bn1 = batch_norm(name='d_bn1')
         self.d_bn2 = batch_norm(name='d_bn2')
         self.d_bn3 = batch_norm(name='d_bn3')
+        self.d_bn4 = batch_norm(name='d_bn4')
 
         self.g_bn_e2 = batch_norm(name='g_bn_e2')
         self.g_bn_e3 = batch_norm(name='g_bn_e3')
@@ -239,15 +243,15 @@ class pix2pix(object):
         self.d_loss = self.d_loss_real + self.d_loss_fake
 
         # add feature matching here
+        self.feature_matching()
+        self.feat_match_flag_holder = tf.placeholder(tf.float32, [len(self.feat_match_loss)], name='feat_match_flag')
+
         if self.feat_match == False:
             # self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
             self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
-            self.feature_matching()
         else:
-            self.g_loss = sum([self.feature_matching()[1]])
-        # self.feat_match_loss.append(tf.nn.l2_loss(self.D_logits-self.D_logits_))
-
-        # self.g_loss = tf.reduce_mean(-tf.log(self.D_ + EPS))
+            # self.g_loss = sum([self.feat_match_loss[3]])
+            self.g_loss = sum([self.feat_match_flag_holder[i]*self.feat_match_loss[i] for i in range(len(self.feat_match_loss))])
 
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         self.content_loss, self.style_loss = self.calculator()
@@ -277,12 +281,11 @@ class pix2pix(object):
         self.content_loss_sum = tf.summary.scalar("content_loss", self.content_loss)
         self.style_loss_sum = tf.summary.scalar("style_loss", self.style_loss)
 
-        self.feat_match_loss_sum_in = tf.summary.scalar("input", self.L1_loss)
-        self.feat_match_loss_sum_h0 = tf.summary.scalar("h0", self.feat_match_loss[0])
-        self.feat_match_loss_sum_h1 = tf.summary.scalar("h1", self.feat_match_loss[1])
-        self.feat_match_loss_sum_h2 = tf.summary.scalar("h2", self.feat_match_loss[2])
-        self.feat_match_loss_sum_h3 = tf.summary.scalar("h3", self.feat_match_loss[3])
-        # self.feat_match_loss_sum_h4 = tf.summary.scalar("h4", self.feat_match_loss[4])
+        self.feat_match_loss_sum_in = tf.summary.scalar("feat/input", self.L1_loss)
+        self.feat_match_loss_sum_h1 = tf.summary.scalar("feat/h1", self.feat_match_loss[0])
+        self.feat_match_loss_sum_h2 = tf.summary.scalar("feat/h2", self.feat_match_loss[1])
+        self.feat_match_loss_sum_h3 = tf.summary.scalar("feat/h3", self.feat_match_loss[2])
+        self.feat_match_loss_sum_h4 = tf.summary.scalar("feat/h4", self.feat_match_loss[3])
 
         t_vars = tf.trainable_variables()
 
@@ -306,7 +309,8 @@ class pix2pix(object):
         samples, d_loss, g_loss_all, g_loss, L1_loss, content_loss, style_loss = self.sess.run(
             [self.fake_B_sample, self.d_loss, self.g_loss_all, self.g_loss, self.L1_loss, self.content_loss, self.style_loss],
             feed_dict={self.real_data: sample_images, self.l1_lambda_holder: self.l1_lamb_cur,
-            self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur}
+            self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur,
+            self.feat_match_flag_holder:self.feat_match_flag}
         )
         save_images(samples, sample_images, [self.batch_size, 1],
                     './{}/{}_{}/train_{:02d}_{:04d}.jpg'.format(sample_dir, self.task, self.mode, epoch, idx),
@@ -327,9 +331,9 @@ class pix2pix(object):
         self.g_sum = tf.summary.merge([self.d__sum, self.L1_loss_sum, self.content_loss_sum, self.style_loss_sum,
             self.fake_B_sum, self.real_B_sum, self.d_loss_fake_sum, self.g_loss_sum, self.g_loss_all_sum])
         self.d_sum = tf.summary.merge([self.d_sum, self.d_loss_real_sum, self.d_loss_sum])
-        self.feat_match_sum = tf.summary.merge([self.feat_match_loss_sum_in, self.feat_match_loss_sum_h0,
+        self.feat_match_sum = tf.summary.merge([self.feat_match_loss_sum_in,
                                         self.feat_match_loss_sum_h1, self.feat_match_loss_sum_h2,
-                                        self.feat_match_loss_sum_h3])
+                                        self.feat_match_loss_sum_h3, self.feat_match_loss_sum_h4])
         file_path = self.log_dir + '/' + self.task + '_' + self.mode
         self.writer = tf.summary.FileWriter(file_path, self.sess.graph)
 
@@ -365,37 +369,28 @@ class pix2pix(object):
                 batch = [b[0] for b in batch]
                 batch_images = np.array(batch).astype(np.float32)
 
+                self.feat_match_flag = [1.0,1.0,1.0,1.0]
+                self.feed_dict = {self.real_data:batch_images, self.l1_lambda_holder:self.l1_lamb_cur,
+                self.lc_lambda_holder:self.lc_lamb_cur, self.ls_lambda_holder:self.ls_lamb_cur,
+                self.feat_match_flag_holder:self.feat_match_flag}
                 # Update D network
-                if self.is_gan:
-                    _, summary_str_d = self.sess.run([d_optim, self.d_sum],
-                                                   feed_dict={ self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                                                   self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur })
+                _, summary_str_d = self.sess.run([d_optim, self.d_sum], feed_dict=self.feed_dict)
 
                 # Update G network
                 # Run g_optim g_times to make sure that d_loss does not go to zero
                 for g_t in range(self.g_times):
                     _, summary_str_g, summary_str_feat = self.sess.run([g_optim, self.g_sum, self.feat_match_sum],
-                                                feed_dict={ self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                                                self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur })
-
-                # self.writer.add_summary(summary_str, counter)
+                                                feed_dict=self.feed_dict)
 
                 counter += 1
                 if counter % self.print_freq == 1:
-                    errD_fake = self.d_loss_fake.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
-                    errD_real = self.d_loss_real.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
-                    errG = self.g_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
-                    errG_all = self.g_loss_all.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
-                    errL1 = self.L1_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
-                    errC = self.content_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
-                    errS = self.style_loss.eval({self.real_data: batch_images, self.l1_lambda_holder: self.l1_lamb_cur,
-                    self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur})
+                    errD_fake = self.d_loss_fake.eval(self.feed_dict)
+                    errD_real = self.d_loss_real.eval(self.feed_dict)
+                    errG = self.g_loss.eval(self.feed_dict)
+                    errG_all = self.g_loss_all.eval(self.feed_dict)
+                    errL1 = self.L1_loss.eval(self.feed_dict)
+                    errC = self.content_loss.eval(self.feed_dict)
+                    errS = self.style_loss.eval(self.feed_dict)
 
                     # pdb.set_trace()
                     if errC < 0.01:
@@ -459,8 +454,10 @@ class pix2pix(object):
             # h3 is (32x 32 x self.df_dim*8)
             h4 = conv2d(h3, 1, d_h=1, d_w=1, name='d_h4_conv')
             # h4 is (32 x 32 x 1)
+            h4_bn = lrelu(self.d_bn4(h4))
+            # h4_bn = h4
 
-            return tf.nn.sigmoid(h4), h4, [h0,h1,h2,h3]
+            return tf.nn.sigmoid(h4), h4, [h1,h2,h3,h4_bn]
 
     def generator(self, image, y=None, is_sampler=False):
         with tf.variable_scope("generator") as scope:
@@ -593,7 +590,8 @@ class pix2pix(object):
             samples, L1_loss = self.sess.run(
                 [self.fake_B_sample, self.L1_loss],
                 feed_dict={self.real_data: sample_image, self.l1_lambda_holder: self.l1_lamb_cur,
-                self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur}
+                self.lc_lambda_holder: self.lc_lamb_cur, self.ls_lambda_holder: self.ls_lamb_cur,
+                self.feat_match_flag_holder:self.feat_match_flag}
             )
             L1_loss_counter = L1_loss_counter + L1_loss
         L1_loss_avg = L1_loss_counter / idx
@@ -643,7 +641,8 @@ class pix2pix(object):
             samples = self.sess.run(
                 self.fake_B_sample,
                 feed_dict={self.real_data: sample_image, self.l1_lambda_holder: self.L1_lamb,
-                self.lc_lambda_holder: self.c_lamb, self.ls_lambda_holder: self.s_lamb}
+                self.lc_lambda_holder: self.c_lamb, self.ls_lambda_holder: self.s_lamb,
+                self.feat_match_flag_holder:[1.0,1.0,1.0,1.0]}
             )
             input_stat_list, output_stat_list= save_images(samples, sample_image, [self.batch_size, 1],
                         './{}/{}_{}/test_{:04d}.jpg'.format(self.test_dir, self.task, self.mode, idx),
@@ -660,12 +659,15 @@ class pix2pix(object):
 
         if self.is_dicom:
             if self.dimension == 2.5:
-                dicom_path = 'dicom/'+self.task+'_'+str(2*self.block+1)+'block_'+self.mode+'/'
+                series_name = self.task + '_' + str(2*self.block+1) + 'block_' +self.mode
+                dicom_path = 'dicom/'+series_name+'/'
                 dict_path = str(2*self.block+1)+'block_test_subject_sample.npz'
+
             else:
-                dicom_path = 'dicom/'+self.task+'_'+self.mode+'/'
+                series_name = self.task + '_' +self.mode
+                dicom_path = 'dicom/'+series_name+'/'
                 dict_path = '2D_test_subject_sample.npz'
             header_path = '/data3/Amyloid/temp/'
 
-            save_dicom(dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)
-            save_dicom(dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)
+            save_dicom(series_name, dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)
+            save_dicom(series_name, dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)

@@ -212,7 +212,7 @@ def inverse_transform(images, data_type):
     else:
         return (images+1.)/2.
 
-def save_dicom(dicom_path, dict_path, ori_path, dst_path, header_path, set='output', block=4):
+def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_path, set='output', block=4):
     if not os.path.exists(dicom_path):
         os.makedirs(dicom_path)
 
@@ -275,9 +275,10 @@ def save_dicom(dicom_path, dict_path, ori_path, dst_path, header_path, set='outp
             im_pred_flip = np.flip(im_pred, 1)
             header_name = header_path+subj_id+'/Full_Dose_40/_bin1_sl'+str(i+block+1)+'.sdcopen'
             testdcm = dicom.read_file(header_name)
-            im_pred_fullrange = 0.9 * 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
+            testdcm.SeriesDescription = 'Synthesis_'+series_name
+            im_pred_fullrange = 0.5 * 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
             im_pred_fullrange[im_pred_fullrange < 0] = 0
-            print(np.amax(im_pred_fullrange))
+            # print(np.amax(im_pred_fullrange))
             im_pred_fullrange[im_pred_fullrange > 32767] = 32767
             testdcm.PixelData = im_pred_fullrange.astype(np.int16).tostring()
             testdcm.save_as(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(i+block+1)+'.sdcopen')
