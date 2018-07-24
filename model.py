@@ -12,6 +12,7 @@ from functools import reduce
 
 from ops import *
 from utils import *
+# from utils_nomax import *
 
 EPS = 1e-12
 
@@ -25,7 +26,7 @@ class pix2pix(object):
                     dimension=2, block=4, input_size=256, output_size=256,
                     input_c_dim=3, output_c_dim=1, gf_dim=64, g_times=1,
                     df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
-                    save_best=False, print_freq=50, sample_freq=100, is_dicom=False,
+                    save_best=False, print_freq=50, sample_freq=100, is_dicom=False, is_max_norm=True,
                     continue_train=False, L1_lamb=100, c_lamb=100, s_lamb=100, data_type='npz'):
 
         """
@@ -99,6 +100,7 @@ class pix2pix(object):
         self.continue_train = continue_train
         self.data_type = data_type
         self.is_dicom = is_dicom
+        self.is_max_norm = is_max_norm
 
         # batch normalization : deals with poor initialization helps gradient flow
         self.d_bn1 = batch_norm(name='d_bn1')
@@ -293,14 +295,14 @@ class pix2pix(object):
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
 
-        self.saver = tf.train.Saver(max_to_keep=5)
+        self.saver = tf.train.Saver(max_to_keep=3)
 
 
     def load_random_samples(self):
         # data = np.random.choice(glob('./datasets/{}/val/*.jpg'.format(self.dataset_name)), self.batch_size)
         data = np.random.choice(glob('{}/test/*.{}'.format(self.dataset_dir, self.data_type)), self.batch_size)
         sample = [load_data(sample_file, data_type=self.data_type, task=self.task, \
-                            dimension=self.dimension) for sample_file in data]
+                            dimension=self.dimension, is_max_norm=self.is_max_norm) for sample_file in data]
         sample = [b[0] for b in sample]
         sample_images = np.array(sample).astype(np.float32)
         return sample_images
@@ -315,7 +317,7 @@ class pix2pix(object):
         )
         save_images(samples, sample_images, [self.batch_size, 1],
                     './{}/{}_{}/train_{:02d}_{:04d}.jpg'.format(sample_dir, self.task, self.mode, epoch, idx),
-                    data_type=self.data_type, is_stat=False)
+                    data_type=self.data_type, is_stat=False, is_max_norm=self.is_max_norm)
         print("[Sample] d_loss: {:.8f}, g_loss_all: {:.8f}, g_loss: {:.8f}, L1_loss: {:.8f}, \
                 content_loss: {:.8f}, style_loss: {:.8f}".format(d_loss, g_loss_all, g_loss, L1_loss, content_loss, style_loss))
 
@@ -371,7 +373,8 @@ class pix2pix(object):
 
             for idx in xrange(0, batch_idxs):
                 batch_files = training_data[idx*self.batch_size:(idx+1)*self.batch_size]
-                batch = [load_data(batch_file, data_type=self.data_type, task=self.task, dimension=self.dimension) for batch_file in batch_files]
+                batch = [load_data(batch_file, data_type=self.data_type, task=self.task, \
+                            dimension=self.dimension, is_max_norm=self.is_max_norm) for batch_file in batch_files]
                 batch = [b[0] for b in batch]
                 batch_images = np.array(batch).astype(np.float32)
 
@@ -442,18 +445,21 @@ class pix2pix(object):
 
             # change self.feat_match_flag based on L1 loss average
             if self.feat_match_dynamic:
-                if L1_loss_avg < 0.015:
+                if L1_loss_avg < 0.01:
                     print('add h4 layer')
                     self.feat_match_flag = [1.0,1.0,1.0,1.0]
                 elif L1_loss_avg < 0.02:
-                    print('add h3 layer')
-                    self.feat_match_flag = [1.0,1.0,1.0,0.0]
+                    if self.feat_match_flag != [1.0,1.0,1.0,1.0]:
+                        print('add h3 layer')
+                        self.feat_match_flag = [1.0,1.0,1.0,0.0]
                 elif L1_loss_avg < 0.025:
-                    print('add h2 layer')
-                    self.feat_match_flag = [1.0,1.0,0.0,0.0]
+                    if self.feat_match_flag != [1.0,1.0,1.0,0.0]:
+                        print('add h2 layer')
+                        self.feat_match_flag = [1.0,1.0,0.0,0.0]
                 elif L1_loss_avg < 0.03:
-                    print('add h1 layer')
-                    self.feat_match_flag = [1.0,0.0,0.0,0.0]
+                    if self.feat_match_flag != [1.0,1.0,0.0,0.0]:
+                        print('add h1 layer')
+                        self.feat_match_flag = [1.0,0.0,0.0,0.0]
 
     def discriminator(self, image, y=None, reuse=False):
 
@@ -556,9 +562,16 @@ class pix2pix(object):
             # d8 is (256 x 256 x output_c_dim)
 
             if self.residual == True:
-                return tf.nn.tanh(self.d8 + tf.expand_dims(image[:,:,:,0], 3))
+                if self.is_max_norm:
+                    return tf.nn.tanh(self.d8 + tf.expand_dims(image[:,:,:,0], 3))
+                else:
+                    return tf.nn.sigmoid(self.d8 + tf.expand_dims(image[:,:,:,0], 3))
             else:
-                return tf.nn.tanh(self.d8)
+                if self.is_max_norm:
+                    return tf.nn.tanh(self.d8)
+                else:
+                    # return tf.nn.sigmoid(self.d8)
+                    return self.d8
 
 
     def save(self, checkpoint_dir, step, is_best=False):
@@ -594,7 +607,7 @@ class pix2pix(object):
         # load validation input
         print("Loading validation images ...")
         sample = [load_data(sample_file, is_test=True, data_type=self.data_type, \
-                            task=self.task, dimension=self.dimension) for sample_file in sample_files]
+                            task=self.task, dimension=self.dimension, is_max_norm=self.is_max_norm) for sample_file in sample_files]
         sample = [b[0] for b in sample]
 
         sample_images = np.array(sample).astype(np.float32)
@@ -635,7 +648,7 @@ class pix2pix(object):
         # load testing input
         print("Loading testing images ...")
         sample = [load_data(sample_file, is_test=True, data_type=self.data_type, \
-                            task=self.task, dimension=self.dimension) for sample_file in sample_files]
+                            task=self.task, dimension=self.dimension, is_max_norm=self.is_max_norm) for sample_file in sample_files]
         max_value = [b[1] for b in sample]
         sample = [b[0] for b in sample]
 
@@ -668,7 +681,7 @@ class pix2pix(object):
             input_stat_list, output_stat_list= save_images(samples, sample_image, [self.batch_size, 1],
                         './{}/{}_{}/test_{:04d}.jpg'.format(self.test_dir, self.task, self.mode, idx),
                         data_type=self.data_type, is_stat=True, is_dicom=self.is_dicom,
-                        max_value=max_value[self.batch_size*i:self.batch_size*(i+1)])
+                        max_value=max_value[self.batch_size*i:self.batch_size*(i+1)], is_max_norm=self.is_max_norm)
             input_stat_all.append(input_stat_list)
             output_stat_all.append(output_stat_list)
         input_stat_all = [y for x in input_stat_all for y in x]
@@ -690,5 +703,7 @@ class pix2pix(object):
                 dict_path = '2D_test_subject_sample.npz'
             header_path = '/data3/Amyloid/temp/'
 
-            save_dicom(series_name, dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)
-            save_dicom(series_name, dicom_path, dict_path, self.dataset_dir, './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block)
+            save_dicom(series_name, dicom_path, dict_path, self.dataset_dir,
+                        './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block, series_num=501)
+            save_dicom(series_name, dicom_path, dict_path, self.dataset_dir,
+                        './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='target', block=self.block, series_num=500)

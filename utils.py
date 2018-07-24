@@ -22,8 +22,8 @@ get_stddev = lambda x, k_h, k_w: 1/math.sqrt(k_w*k_h*x.get_shape()[-1])
 # -----------------------------
 # new added functions for pix2pix
 
-def load_data(image_path, is_test=False, data_type='npz', task='lowdose', dimension=2):
-    img_A, img_B, max_value_A, max_value_B = load_image(image_path, data_type, task, dimension)
+def load_data(image_path, is_test=False, data_type='npz', task='lowdose', dimension=2, is_max_norm=True):
+    img_A, img_B, max_value_A, max_value_B = load_image(image_path, data_type, task, dimension, is_max_norm)
     # img_A, img_B = preprocess_A_and_B(img_A, img_B, flip=flip, is_test=is_test)
 
     if data_type != 'npz':
@@ -35,7 +35,7 @@ def load_data(image_path, is_test=False, data_type='npz', task='lowdose', dimens
     # img_AB shape: (fine_size, fine_size, input_c_dim + output_c_dim)
     return img_AB, [max_value_A, max_value_B]
 
-def load_image(image_path, data_type, task, dimension):
+def load_image(image_path, data_type, task, dimension, is_max_norm):
     if data_type == 'npz':
         input_img = np.load(image_path)
         # print(image_path)
@@ -55,16 +55,22 @@ def load_image(image_path, data_type, task, dimension):
             idx = img_A.shape[2] // 2
         else:
             idx = 0
-        for i in range(img_A.shape[2]):
-            max_value = np.amax(img_A[:,:,i])
-            if max_value == 0:
-                max_value = 1
-            img_A[:,:,i] = 2 * img_A[:,:,i] / max_value - 1
-            if i == idx:
-                max_value_A = max_value
+        if is_max_norm:
+            for i in range(img_A.shape[2]):
+                max_value = np.amax(img_A[:,:,i])
+                if max_value == 0:
+                    max_value = 1
+                img_A[:,:,i] = 2 * img_A[:,:,i] / max_value - 1
+                if i == idx:
+                    max_value_A = max_value
 
-        max_value_B = np.amax(img_B)
-        img_B = 2 * img_B / max_value_B - 1
+            max_value_B = np.amax(img_B)
+            img_B = 2 * img_B / max_value_B - 1
+        else:
+            img_A = img_A * 100
+            img_B = img_B * 100
+            max_value_A = 1.0
+            max_value_B = 1.0
 
     else:                   # .jpg .png input and output concatenate
         input_img = imread(image_path)
@@ -86,9 +92,9 @@ def preprocess_A_and_B(img_A, img_B, flip=True, is_test=False):
 def get_image(image_path, image_size, is_crop=True, resize_w=64, is_grayscale = False):
     return transform(imread(image_path, is_grayscale), image_size, is_crop, resize_w)
 
-def save_images(images, reals, size, image_path, data_type, is_stat, is_dicom=False, max_value=None):
-    return merge(inverse_transform(images, data_type),
-                    inverse_transform(reals, data_type), size, data_type, image_path, is_stat, is_dicom, max_value)
+def save_images(images, reals, size, image_path, data_type, is_stat, is_dicom=False, max_value=None, is_max_norm=True):
+    return merge(inverse_transform(images, data_type, is_max_norm),
+                    inverse_transform(reals, data_type, is_max_norm), size, data_type, image_path, is_stat, is_dicom, max_value)
 
 def imread(path, is_grayscale = False):
     if (is_grayscale):
@@ -109,7 +115,7 @@ def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, m
             image = np.squeeze(image, axis=2)
             img_path = path[:-4] + '_' + str(idx) + '_output' + path[-4:]
             image_img = image
-            image_img = scipy.misc.bytescale(image*255, low=int(np.amin(image)*255.0), high=int(np.amax(image)*255.0))
+            # image_img = scipy.misc.bytescale(image*255, low=int(np.amin(image)*255.0), high=int(np.amax(image)*255.0))
             scipy.misc.imsave(img_path, image_img)
             # npz_path = path[:-4] + '_' + str(idx) + '_output.npy'
             # np.save(npz_path, image)
@@ -125,19 +131,19 @@ def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, m
             tmp_img = tmp
             # print(np.amin(tmp))
             # print(np.amax(tmp))
-            tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
+            # tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
             scipy.misc.imsave(img_path, tmp_img)
             target = real[:,:,-1]
             img_path = path[:-4] + '_' + str(idx) + '_target' + path[-4:]
             target_img = target
-            target_img = scipy.misc.bytescale(target*255, low=int(np.amin(target)*255.0), high=int(np.amax(target)*255.0))
+            # target_img = scipy.misc.bytescale(target*255, low=int(np.amin(target)*255.0), high=int(np.amax(target)*255.0))
             scipy.misc.imsave(img_path, target_img)
 
             # save diff
             diff = abs(image - target)
             img_path = path[:-4] + '_' + str(idx) + '_diff' + path[-4:]
             diff_img = diff
-            diff_img = scipy.misc.bytescale(diff*255, low=int(np.amin(diff)*255.0), high=int(np.amax(diff)*255.0))
+            # diff_img = scipy.misc.bytescale(diff*255, low=int(np.amin(diff)*255.0), high=int(np.amax(diff)*255.0))
             scipy.misc.imsave(img_path, diff_img)
             # npz_path = path[:-4] + '_' + str(idx) + '_diff.npy'
             # np.save(npz_path, diff)
@@ -205,14 +211,17 @@ def transform(image, npx=64, is_crop=True, resize_w=64):
         cropped_image = image
     return np.array(cropped_image)/127.5 - 1.
 
-def inverse_transform(images, data_type):
+def inverse_transform(images, data_type, is_max_norm):
     if data_type == 'npz':
-        images = (images+1.)/2.
+        if is_max_norm:
+            images = (images+1.)/2.
+        else:
+            images = images / 100.0
         return images
     else:
         return (images+1.)/2.
 
-def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_path, set='output', block=4):
+def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_path, set='output', block=4, series_num=501):
     if not os.path.exists(dicom_path):
         os.makedirs(dicom_path)
 
@@ -262,7 +271,11 @@ def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_pa
             im_pred_flip = np.flip(im_pred, 1)
             header_name = header_path+subj_id+'/Full_Dose_40/_bin1_sl'+str(i+block+1)+'.sdcopen'
             testdcm = dicom.read_file(header_name)
-            testdcm.SeriesDescription = 'Synthesis_'+series_name
+            if set == 'target':
+                testdcm.SeriesDescription = 'target'
+            else:
+                testdcm.SeriesDescription = 'Synthesis_'+series_name
+            testdcm.SeriesNumber = series_num
             im_pred_fullrange = 0.5 * 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
             im_pred_fullrange[im_pred_fullrange < 0] = 0
             # print(np.amax(im_pred_fullrange))
