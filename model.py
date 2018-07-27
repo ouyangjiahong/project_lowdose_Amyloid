@@ -562,10 +562,16 @@ class pix2pix(object):
             # d8 is (256 x 256 x output_c_dim)
 
             if self.residual == True:
-                if self.is_max_norm:
-                    return tf.nn.tanh(self.d8 + tf.expand_dims(image[:,:,:,0], 3))
+                if self.dimension == 2.5:
+                    idx = image.shape[3] // 2
                 else:
-                    return tf.nn.sigmoid(self.d8 + tf.expand_dims(image[:,:,:,0], 3))
+                    idx = 0
+
+                if self.is_max_norm:
+                    return tf.nn.tanh(self.d8) + tf.expand_dims(image[:,:,:,idx], 3)
+                else:
+                    return self.d8 + tf.expand_dims(image[:,:,:,idx], 3)
+                    # return tf.nn.sigmoid(self.d8) + tf.expand_dims(image[:,:,:,idx], 3)
             else:
                 if self.is_max_norm:
                     return tf.nn.tanh(self.d8)
