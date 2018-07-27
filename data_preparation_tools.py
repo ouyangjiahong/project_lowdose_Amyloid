@@ -30,7 +30,7 @@ def augment_data(data_xy, axis_xy=[1,2], augment={'flipxy':0,'flipx':0,'flipy':0
             data_xy[:,:,:-augment['shifty'],...] = data_xy[:,:,augment['shifty']:,...]
     return data_xy
 
-def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
+def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, scale_by_mean_norm=False):
     # get nifti
     nib_load = nib.load(path_load)
     # print(nib_load.header)
@@ -40,16 +40,15 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
     data_load = np.transpose(data_load[:,:,:,np.newaxis], [2,0,1,3])
 
     # scale
-    if scale_by_norm:
-        forbenius_norm = np.linalg.norm(data_load.flatten())
-        data_load = data_load / forbenius_norm
-        # for i in range(data_load.shape[0]):
-        #     img = data_load[i,:,:,:]
-        #     max_value = np.amax(img)
-        #     if max_value == 0:
-        #         max_value = 1
-        #     # max_value = min(np.amax(img), 1)
-        #     data_load[i,:,:,:] = 2 * img / max_value - 1
+    if scale_by_F_norm:
+        norm = np.linalg.norm(data_load.flatten())
+        data_load = data_load / norm
+
+    if scale_by_mean_norm:
+        sum = np.sum(data_load)
+        nonzero_num = np.sum(data_load > 0)
+        norm = sum / nonzero_num
+        data_load = data_load / norm
 
     # finish loading data
     print('loaded from {0}, data size {1} (sample, x, y, channel)'.format(path_load, data_load.shape))
@@ -64,7 +63,7 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
             list_data.append(data_augmented.reshape(data_load.shape))
         data_load = np.concatenate(list_data, axis = 0)
 
-    return data_load, forbenius_norm #, norm_factor # KC 20171018
+    return data_load, norm
 
 
 def export_data_to_npz(data_train_input, data_train_gt,dir_numpy_compressed, \
@@ -87,13 +86,18 @@ def export_data_to_npz(data_train_input, data_train_gt,dir_numpy_compressed, \
                 np.savez_compressed(file_input, input=im_input, output=im_output)
             index_sample_accumuated+=1
     elif dimension == '2.5':
+        pdb.set_trace()
         aug_num = num_sample_in_data // slices
         for j in xrange(aug_num):
             for i in xrange(block, slices-block):
                 idx = j * slices + i
                 im_input = data_train_input[idx-block:idx+block+1, :]
                 im_input = np.transpose(im_input, [3,1,2,0])
-                im_input = np.squeeze(im_input, 0)
+                # im_input = np.squeeze(im_input, 0)
+                im_input_tmp = []
+                for ch in range(im_input.shape[0]):
+                    im_input_tmp.append(im_input[ch, :])
+                im_input = np.concatenate(im_input_tmp, axis=2)
                 im_output = data_train_gt[idx, :]
                 filepath_npz = os.path.join(dir_numpy_compressed,'{0}.{1}'.format(index_sample_accumuated, ext_data))
                 with open(filepath_npz,'w') as file_input:

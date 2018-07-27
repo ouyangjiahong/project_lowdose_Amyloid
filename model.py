@@ -12,7 +12,6 @@ from functools import reduce
 
 from ops import *
 from utils import *
-# from utils_nomax import *
 
 EPS = 1e-12
 

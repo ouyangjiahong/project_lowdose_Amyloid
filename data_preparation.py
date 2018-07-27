@@ -12,34 +12,23 @@ parser = argparse.ArgumentParser(description='')
 parser.add_argument('--set', dest='set', default='train', help='train, test')
 parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='/home/data/', help='folder of original data')
 parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/Amyloid_norm/', help='folder of dst npz data')
-parser.add_argument('--norm', dest='norm', action='store_false', help='use Frobenius norm or nor')
-parser.set_defaults(norm=True)
+parser.add_argument('--is_F_norm', dest='is_F_norm', action='store_true', help='use Frobenius norm or not')
+parser.set_defaults(is_F_norm=False)
+parser.add_argument('--is_mean_norm', dest='is_mean_norm', action='store_true', help='use mean norm or not')
+parser.set_defaults(is_mean_norm=False)
 parser.add_argument('--dimension', dest='dimension', default='2', help='2, 2.5, 3')
 parser.add_argument('--block', dest='block', type=int, default=4, help='2.5D data will be 2*block+1')
+parser.add_argument('--task', dest='task', default='petonly', help='lowdose, petonly, zerodose, only useful when its 2.5D')
 
 args = parser.parse_args()
 set = args.set
 dir_data_ori = args.dir_data_ori
 dir_data_dst = args.dir_data_dst
-norm = args.norm
+is_F_norm = args.is_F_norm
+is_mean_norm = args.is_mean_norm
 dimension = args.dimension
 block = args.block
-
-
-# stanford machine
-# dir_data_ori = '/data3/Amyloid/'
-# dir_data_dst = '/home/jiahong/data/Amyloid/'
-
-# IBM machine
-# dir_data_ori = '~/data/Amyloid/'
-# dir_data_dst = '~/project_lowdose/data/'
-
-# cmu machine
-# dir_data_ori = '/home/jihang/Jiahong/data/'
-# dir_data_dst = '/data/Amyloid_npz/'
-# set = 'test'
-# norm = True
-
+task = args.task
 
 dir_data_dst = dir_data_dst + set + '/'
 if not os.path.exists(dir_data_dst):
@@ -74,30 +63,44 @@ print(list_subject)
 
 list_dataset_train = []
 
-if dimension == '2':
-    filename_lowPET = 'pet_nifti/501_.nii.gz'
-    filename_PET = 'pet_nifti/500_.nii.gz'
-    filename_T1 = 'mr_nifti/T1_nifti_inv.nii'
-    filename_T2 = 'mr_nifti/T2_nifti_inv.nii'
-    filename_T2FLAIR = 'mr_nifti/T2_FLAIR_nifti_inv.nii'
 
+filename_lowPET = 'pet_nifti/501_.nii.gz'
+filename_PET = 'pet_nifti/500_.nii.gz'
+filename_T1 = 'mr_nifti/T1_nifti_inv.nii'
+filename_T2 = 'mr_nifti/T2_nifti_inv.nii'
+filename_T2FLAIR = 'mr_nifti/T2_FLAIR_nifti_inv.nii'
+if dimension == '2':
     for subject_id in list_subject:
         dir_subject = os.path.join(dir_data_ori, subject_id)
         list_dataset_train.append({'input':[os.path.join(dir_subject, filename_lowPET),
                                        os.path.join(dir_subject, filename_T1),
                                        os.path.join(dir_subject, filename_T2),
                                        os.path.join(dir_subject, filename_T2FLAIR)],
-                             'gt':os.path.join(dir_subject, filename_PET)}
-                            )
-elif dimension == '2.5':
-    filename_lowPET = 'pet_nifti/501_.nii.gz'
-    filename_PET = 'pet_nifti/500_.nii.gz'
+                             'gt':os.path.join(dir_subject, filename_PET)})
 
-    for subject_id in list_subject:
-        dir_subject = os.path.join(dir_data_ori, subject_id)
-        list_dataset_train.append({'input':[os.path.join(dir_subject, filename_lowPET)],
-                             'gt':os.path.join(dir_subject, filename_PET)}
-                            )
+elif dimension == '2.5':
+    if task == 'petonly':
+        for subject_id in list_subject:
+            dir_subject = os.path.join(dir_data_ori, subject_id)
+            list_dataset_train.append({'input':[os.path.join(dir_subject, filename_lowPET)],
+                                 'gt':os.path.join(dir_subject, filename_PET)})
+
+    elif task == 'lowdose':
+        for subject_id in list_subject:
+            dir_subject = os.path.join(dir_data_ori, subject_id)
+            list_dataset_train.append({'input':[os.path.join(dir_subject, filename_lowPET),
+                                            os.path.join(dir_subject, filename_T1),
+                                            os.path.join(dir_subject, filename_T2),
+                                            os.path.join(dir_subject, filename_T2FLAIR)],
+                                 'gt':os.path.join(dir_subject, filename_PET)})
+
+    else:           # zerodose
+        for subject_id in list_subject:
+            dir_subject = os.path.join(dir_data_ori, subject_id)
+            list_dataset_train.append({'input':[os.path.join(dir_subject, filename_T1),
+                                            os.path.join(dir_subject, filename_T2),
+                                            os.path.join(dir_subject, filename_T2FLAIR)],
+                                 'gt':os.path.join(dir_subject, filename_PET)})
 
 num_dataset_train = len(list_dataset_train)
 print('process {0} data description'.format(num_dataset_train))
@@ -132,16 +135,12 @@ print('will augment data with {0} augmentations'.format(num_augment))
 '''
 file loading related
 '''
-ext_dicom = 'MRDC'
-key_sort = lambda x: int(x.split('.')[-1])
-scale_method = lambda x:np.mean(np.abs(x))
-scale_by_mean = False
-scale_factor = 1/32768.
 ext_data = 'npz'
 
 '''
 generate train data
 '''
+flatten = lambda list: [item for sublist in list for item in sublist]
 list_train_input = []
 list_train_gt = []
 index_sample_total = 0
@@ -149,20 +148,23 @@ list_subject_sample = []
 for index_data in range(num_dataset_train):
     # directory
     list_data_train_input = []
-    lowdose_norm = 0
+    lowdose_norm = []
     fulldose_norm = 0
     for path_train_input in list_dataset_train[index_data]['input']:
         # load data
-        data_train_input, f_norm = prepare_data_from_nifti(path_train_input, list_augments, scale_by_norm=norm)
+        data_train_input, f_norm = prepare_data_from_nifti(path_train_input,
+                                    list_augments, scale_by_F_norm=is_F_norm, scale_by_mean_norm=is_mean_norm)
         list_data_train_input.append(data_train_input)
-        if lowdose_norm == 0:
-            lowdose_norm = f_norm
+        # if lowdose_norm == 0:
+        #     lowdose_norm = f_norm
+        lowdose_norm.append(f_norm)
     data_train_input = np.concatenate(list_data_train_input, axis=-1)
 
 
     # load data ground truth
     path_train_gt = list_dataset_train[index_data]['gt']
-    data_train_gt, fulldose_norm = prepare_data_from_nifti(path_train_gt, list_augments, scale_by_norm=norm)
+    data_train_gt, fulldose_norm = prepare_data_from_nifti(path_train_gt,
+                                    list_augments, scale_by_F_norm=is_F_norm, scale_by_mean_norm=is_mean_norm)
 
     start_idx = index_sample_total
     # export
@@ -173,14 +175,21 @@ for index_data in range(num_dataset_train):
                                             ext_data, dimension, block=block)
 
     for i in range(start_idx, index_sample_total):
-        list_subject_sample.append([using_set[index_data], lowdose_norm, fulldose_norm])
+        # TODO: test whether flatten right
+        info = flatten([using_set[index_data], lowdose_norm, fulldose_norm])
+        list_subject_sample.append(info)
 
 dict = np.array(list_subject_sample)
 subject_list = np.array(using_set)
 # pdb.set_trace()
+norm = ''
+if is_F_norm == True:
+    norm = 'F_norm_'
+if is_mean_norm == True:
+    norm = 'mean_norm_'
 if dimension == '2.5':
-    npz_name = str(2*block+1)+'block_'+set+'_subject_sample.npz'
+    npz_name = task + '_' + norm + str(2*block+1)+'block_'+set+'_subject_sample.npz'
 elif dimension == '2':
-    npz_name = '2D_'+set+'_subject_sample.npz'
+    npz_name = norm + '2D_'+set+'_subject_sample.npz'
 np.savez_compressed(npz_name, dict=dict, subject_list=subject_list)
 # pdb.set_trace()
