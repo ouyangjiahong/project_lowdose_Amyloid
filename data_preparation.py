@@ -30,6 +30,8 @@ dimension = args.dimension
 block = args.block
 task = args.task
 
+crop = 20       # remove first and last 20 slices
+
 dir_data_dst = dir_data_dst + set + '/'
 if not os.path.exists(dir_data_dst):
     os.makedirs(dir_data_dst)
@@ -140,7 +142,7 @@ ext_data = 'npz'
 '''
 generate train data
 '''
-flatten = lambda list: [item for sublist in list for item in sublist]
+flatten = lambda l: [item for sublist in l for item in sublist]
 list_train_input = []
 list_train_gt = []
 index_sample_total = 0
@@ -153,10 +155,9 @@ for index_data in range(num_dataset_train):
     for path_train_input in list_dataset_train[index_data]['input']:
         # load data
         data_train_input, f_norm = prepare_data_from_nifti(path_train_input,
-                                    list_augments, scale_by_F_norm=is_F_norm, scale_by_mean_norm=is_mean_norm)
+                                    list_augments, scale_by_F_norm=is_F_norm,
+                                    scale_by_mean_norm=is_mean_norm, crop=crop)
         list_data_train_input.append(data_train_input)
-        # if lowdose_norm == 0:
-        #     lowdose_norm = f_norm
         lowdose_norm.append(f_norm)
     data_train_input = np.concatenate(list_data_train_input, axis=-1)
 
@@ -164,7 +165,8 @@ for index_data in range(num_dataset_train):
     # load data ground truth
     path_train_gt = list_dataset_train[index_data]['gt']
     data_train_gt, fulldose_norm = prepare_data_from_nifti(path_train_gt,
-                                    list_augments, scale_by_F_norm=is_F_norm, scale_by_mean_norm=is_mean_norm)
+                                    list_augments, scale_by_F_norm=is_F_norm,
+                                    scale_by_mean_norm=is_mean_norm, crop=crop)
 
     start_idx = index_sample_total
     # export
@@ -172,11 +174,11 @@ for index_data in range(num_dataset_train):
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
-                                            ext_data, dimension, block=block)
+                                            ext_data, dimension,
+                                            slices=89-2*crop, block=block)
 
     for i in range(start_idx, index_sample_total):
-        # TODO: test whether flatten right
-        info = flatten([using_set[index_data], lowdose_norm, fulldose_norm])
+        info = flatten([[using_set[index_data]], lowdose_norm, [fulldose_norm]])
         list_subject_sample.append(info)
 
 dict = np.array(list_subject_sample)

@@ -30,7 +30,7 @@ def augment_data(data_xy, axis_xy=[1,2], augment={'flipxy':0,'flipx':0,'flipy':0
             data_xy[:,:,:-augment['shifty'],...] = data_xy[:,:,augment['shifty']:,...]
     return data_xy
 
-def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, scale_by_mean_norm=False):
+def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, scale_by_mean_norm=False, crop=20):
     # get nifti
     nib_load = nib.load(path_load)
     # print(nib_load.header)
@@ -38,6 +38,10 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, 
     data_load = nib_load.get_data()
     # transpose to [x,y,slices] -> [slice, x, y, channel]
     data_load = np.transpose(data_load[:,:,:,np.newaxis], [2,0,1,3])
+
+    # only keep middle 48 slices
+    data_load = data_load[crop:-crop,:]
+    # pdb.set_trace()
 
     # scale
     if scale_by_F_norm:
@@ -47,8 +51,10 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, 
     if scale_by_mean_norm:
         sum = np.sum(data_load)
         nonzero_num = np.sum(data_load > 0)
-        norm = sum / nonzero_num
+        norm = sum / float(nonzero_num)
         data_load = data_load / norm
+        print(np.max(data_load))
+        # pdb.set_trace()
 
     # finish loading data
     print('loaded from {0}, data size {1} (sample, x, y, channel)'.format(path_load, data_load.shape))
@@ -86,7 +92,6 @@ def export_data_to_npz(data_train_input, data_train_gt,dir_numpy_compressed, \
                 np.savez_compressed(file_input, input=im_input, output=im_output)
             index_sample_accumuated+=1
     elif dimension == '2.5':
-        pdb.set_trace()
         aug_num = num_sample_in_data // slices
         for j in xrange(aug_num):
             for i in xrange(block, slices-block):

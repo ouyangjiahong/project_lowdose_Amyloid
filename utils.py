@@ -17,19 +17,9 @@ from time import gmtime, strftime
 
 pp = pprint.PrettyPrinter()
 
-get_stddev = lambda x, k_h, k_w: 1/math.sqrt(k_w*k_h*x.get_shape()[-1])
-
-# -----------------------------
-# new added functions for pix2pix
 
 def load_data(image_path, is_test=False, data_type='npz', task='lowdose', dimension=2, is_max_norm=True):
     img_A, img_B, max_value_A, max_value_B = load_image(image_path, data_type, task, dimension, is_max_norm)
-    # img_A, img_B = preprocess_A_and_B(img_A, img_B, flip=flip, is_test=is_test)
-
-    if data_type != 'npz':
-        # print('not npz, use normalization')
-        img_A = img_A/127.5 - 1.
-        img_B = img_B/127.5 - 1.
 
     img_AB = np.concatenate((img_A, img_B), axis=2)
     # img_AB shape: (fine_size, fine_size, input_c_dim + output_c_dim)
@@ -44,7 +34,8 @@ def load_image(image_path, data_type, task, dimension, is_max_norm):
         # transfer data to [-1, 1]
         # using data only after F-norm
         if task == 'zerodose':
-            img_A = img_A[:,:,1:]
+            if dimension == 2:
+                img_A = img_A[:,:,1:]
         elif task == 'petonly':
             if dimension == 2:
                 img_A = img_A[:,:,0]
@@ -67,8 +58,8 @@ def load_image(image_path, data_type, task, dimension, is_max_norm):
             max_value_B = np.amax(img_B)
             img_B = 2 * img_B / max_value_B - 1
         else:
-            img_A = img_A * 100
-            img_B = img_B * 100
+            # img_A = img_A * 100
+            # img_B = img_B * 100
             max_value_A = 1.0
             max_value_B = 1.0
 
@@ -87,10 +78,6 @@ def preprocess_A_and_B(img_A, img_B, flip=True, is_test=False):
             img_B = np.fliplr(img_B)
     return img_A, img_B
 
-# -----------------------------
-
-def get_image(image_path, image_size, is_crop=True, resize_w=64, is_grayscale = False):
-    return transform(imread(image_path, is_grayscale), image_size, is_crop, resize_w)
 
 def save_images(images, reals, size, image_path, data_type, is_stat, is_dicom=False, max_value=None, is_max_norm=True):
     return merge(inverse_transform(images, data_type, is_max_norm),
@@ -111,7 +98,6 @@ def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, m
         input_stat_rev_list = []
         for idx, image in enumerate(images):
             # save generatove image
-            lowdose = reals[idx][:,:,0]
             image = np.squeeze(image, axis=2)
             img_path = path[:-4] + '_' + str(idx) + '_output' + path[-4:]
             image_img = image
@@ -122,17 +108,17 @@ def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, m
 
             # save input and target
             real = reals[idx]
-            tmp = real[:,:,0]
-            if reals.shape[3] - 1 > 5:      # 2.5D input
-                tmp = real[:,:,reals.shape[3]//2-1]
-            for i in range(1, reals.shape[3]-1):
-                tmp = np.concatenate((tmp, real[:,:,i]), axis=1)
-            img_path = path[:-4] + '_' + str(idx) + '_input' + path[-4:]
-            tmp_img = tmp
-            # print(np.amin(tmp))
-            # print(np.amax(tmp))
-            # tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
-            scipy.misc.imsave(img_path, tmp_img)
+            if reals.shape[3] < 10:
+                tmp = real[:,:,0]
+                for i in range(1, reals.shape[3]-1):
+                    tmp = np.concatenate((tmp, real[:,:,i]), axis=1)
+                img_path = path[:-4] + '_' + str(idx) + '_input' + path[-4:]
+                tmp_img = tmp
+                # print(np.amin(tmp))
+                # print(np.amax(tmp))
+                # tmp_img = scipy.misc.bytescale(tmp*255, low=int(np.amin(tmp)*255.0), high=int(np.amax(tmp)*255.0))
+                scipy.misc.imsave(img_path, tmp_img)
+
             target = real[:,:,-1]
             img_path = path[:-4] + '_' + str(idx) + '_target' + path[-4:]
             target_img = target
@@ -149,11 +135,14 @@ def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, m
             # np.save(npz_path, diff)
 
             if is_stat == True:
-                input = real[:,:,0]
+                # TODO: only right for petonly
+                slice = real.shape[2]
+                input = real[:,:,(slice-1)//2]
                 output_stat = compare_stat(image, target, max_value[idx])
                 output_stat_list.append(output_stat)
                 input_stat = compare_stat(input, target, max_value[idx])
                 input_stat_list.append(input_stat)
+                # pdb.set_trace()
 
             # multiply by max_value, save npy first
             if is_dicom == True:
@@ -172,13 +161,16 @@ def merge(images, reals, size, data_type, path, is_stat=False, is_dicom=False, m
             scipy.misc.imsave(img_path, image)
 
 def compare_stat(im_pred, im_gt, max_value):
-    im_pred = np.array(im_pred).astype(np.float).flatten()
-    im_gt = np.array(im_gt).astype(np.float).flatten()
-    mask=np.abs(im_gt.flatten())>0
+    # im_pred = np.array(im_pred).astype(np.float).flatten()
+    # im_gt = np.array(im_gt).astype(np.float).flatten()
+    # mask=np.abs(im_gt.flatten())>0
 
     # check dimension
     assert(im_pred.flatten().shape==im_gt.flatten().shape)
 
+    range = np.max(im_gt)
+    if range < 1:   # for range between 0~1
+        range = 1
     # NRMSE
     try:
         rmse_pred = compare_nrmse(im_gt, im_pred)
@@ -187,19 +179,20 @@ def compare_stat(im_pred, im_gt, max_value):
 
     # PSNR
     try:
-        psnr_pred = compare_psnr(im_gt, im_pred)
+        psnr_pred = compare_psnr(im_gt, im_pred, data_range=range)
+        # pdb.set_trace()
     except:
         psnr_pred = float('nan')
 
     # ssim
     try:
-        ssim_pred = compare_ssim(im_gt, im_pred)
-        score_ismrm = sum((np.abs(im_gt.flatten()-im_pred.flatten())<0.1)*mask)/(sum(mask)+0.0)*10000
+        ssim_pred = compare_ssim(im_gt, im_pred, data_range=range)
+        # score_ismrm = sum((np.abs(im_gt.flatten()-im_pred.flatten())<0.1)*mask)/(sum(mask)+0.0)*10000
     except:
         ssim_pred = float('nan')
         score_ismrm = float('nan')
 
-    return {'rmse':rmse_pred,'psnr':psnr_pred,'ssim':ssim_pred,'score_ismrm':score_ismrm}
+    return {'rmse':rmse_pred,'psnr':psnr_pred,'ssim':ssim_pred}#,'score_ismrm':score_ismrm}
     # return {'rmse':10*max_value[1]*rmse_pred,'psnr':10*np.log10(100*max_value[1])+psnr_pred,'ssim':ssim_pred,'score_ismrm':score_ismrm}
 
 
@@ -215,8 +208,8 @@ def inverse_transform(images, data_type, is_max_norm):
     if data_type == 'npz':
         if is_max_norm:
             images = (images+1.)/2.
-        else:
-            images = images / 100.0
+        # else:
+        #     images = images / 100.0
         return images
     else:
         return (images+1.)/2.
@@ -276,7 +269,7 @@ def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_pa
             else:
                 testdcm.SeriesDescription = 'Synthesis_'+series_name
             testdcm.SeriesNumber = series_num
-            im_pred_fullrange = 0.5 * 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
+            im_pred_fullrange = 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
             im_pred_fullrange[im_pred_fullrange < 0] = 0
             # print(np.amax(im_pred_fullrange))
             im_pred_fullrange[im_pred_fullrange > 32767] = 32767

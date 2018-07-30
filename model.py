@@ -569,14 +569,14 @@ class pix2pix(object):
                 if self.is_max_norm:
                     return tf.nn.tanh(self.d8) + tf.expand_dims(image[:,:,:,idx], 3)
                 else:
-                    return self.d8 + tf.expand_dims(image[:,:,:,idx], 3)
+                    return tf.nn.softplus(self.d8) + tf.expand_dims(image[:,:,:,idx], 3)
                     # return tf.nn.sigmoid(self.d8) + tf.expand_dims(image[:,:,:,idx], 3)
             else:
                 if self.is_max_norm:
                     return tf.nn.tanh(self.d8)
                 else:
                     # return tf.nn.sigmoid(self.d8)
-                    return self.d8
+                    return tf.nn.softplus(self.d8)
 
 
     def save(self, checkpoint_dir, step, is_best=False):
@@ -700,13 +700,14 @@ class pix2pix(object):
             if self.dimension == 2.5:
                 series_name = self.task + '_' + str(2*self.block+1) + 'block_' +self.mode
                 dicom_path = 'dicom/'+series_name+'/'
-                dict_path = str(2*self.block+1)+'block_test_subject_sample.npz'
+                dict_path = self.task + '_mean_norm_' + str(2*self.block+1)+'block_test_subject_sample.npz'
 
             else:
                 series_name = self.task + '_' +self.mode
                 dicom_path = 'dicom/'+series_name+'/'
-                dict_path = '2D_test_subject_sample.npz'
-            header_path = '/data3/Amyloid/temp/'
+                dict_path = self.task + '_mean_norm_' + '2D_test_subject_sample.npz'
+            # header_path = '/data3/Amyloid/temp/'
+            header_path = '/home/data/Amyloid/'
 
             save_dicom(series_name, dicom_path, dict_path, self.dataset_dir,
                         './{}/{}_{}/'.format(self.test_dir, self.task, self.mode), header_path, set='output', block=self.block, series_num=501)
