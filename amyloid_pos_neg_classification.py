@@ -217,6 +217,30 @@ class amyloid_pos_neg_classifier(object):
         label = data['label'].tolist()
         return image, label
 
+    def save(self, checkpoint_dir, step, is_best=False):
+        model_name = "amyloid_resnet.model"
+        if is_best == True:
+            model_name = 'best.' + model_name
+        print("save model")
+
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+
+        self.saver.save(self.sess,
+                        os.path.join(checkpoint_dir, model_name),
+                        global_step=step)
+
+    def load(self, checkpoint_dir):
+        print(" [*] Reading checkpoint...")
+
+        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+            self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
+            return True
+        else:
+            return False
+
 def main(_):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     config = tf.ConfigProto()
