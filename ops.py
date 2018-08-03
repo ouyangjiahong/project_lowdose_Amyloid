@@ -1,10 +1,11 @@
 import math
 import numpy as np
+import pdb
 import tensorflow as tf
 
 from tensorflow.python.framework import ops
 
-from utils import *
+# from utils import *
 
 class batch_norm(object):
             # h1 = lrelu(tf.contrib.layers.batch_norm(conv2d(h0, self.df_dim*2, name='d_h1_conv'),decay=0.9,updates_collections=None,epsilon=0.00001,scale=True,scope="d_h1_conv"))
@@ -34,6 +35,43 @@ def binary_cross_entropy(preds, targets, name=None):
         targets = ops.convert_to_tensor(targets, name="targets")
         return tf.reduce_mean(-(targets * tf.log(preds + eps) +
                               (1. - targets) * tf.log(1. - preds + eps)))
+
+# use only in amyloid classifier
+def bn(x, epsilon=1e-3, momentum = 0.99, phase='training', name="batch_norm"):
+    return tf.contrib.layers.batch_norm(x, decay=momentum, updates_collections=None,
+                                is_training=phase, epsilon=epsilon, scale=True, scope=name)
+
+def residual_block(x, output_dim=1, stride=1, stddev=0.02,
+                    center=False, block_name="conv", is_first=False):
+    d_h = stride
+    d_w = stride
+    input_dim = x.get_shape()[-1]
+    # with tf.varibale_scope(block_name):
+    # shortcut
+    if is_first:
+        if input_dim == output_dim:
+            if stride == 1:
+                shortcut = tf.identity(x)
+            else:
+                shortcut = tf.nn.max_pool(x, [1, stride, stride, 1], [1, stride, stride, 1], 'VALID')
+        else:
+            shortcut = conv2d(x, output_dim, k_h=1, k_w=1, d_h=d_h, d_w=d_w, name='shortcut')
+    else:
+        shortcut = x
+
+    # residual
+    if not is_first:
+        output_dim = input_dim
+    x = conv2d(x, output_dim, k_h=3, k_w=3, d_h=d_h, d_w=d_w, stddev=0.02, center=False, name='conv_1')
+    x = bn(x, name='bn_1')
+    x = lrelu(x, name='lrelu_1')
+    x = conv2d(x, output_dim, k_h=3, k_w=3, d_h=1, d_w=1, stddev=0.02, center=False, name='conv_2')
+    x = bn(x, name='bn_2')
+    x = tf.nn.dropout(x, 0.5)       # TODO: not sure should use dropout or not
+    x = x + shortcut
+    x = lrelu(x, name='lrelu_2')
+
+    return x
 
 def conv_cond_concat(x, y):
     """Concatenate conditioning vector on feature map axis."""
@@ -89,6 +127,7 @@ def lrelu(x, leak=0.2, name="lrelu"):
 
 def linear(input_, output_size, scope=None, stddev=0.02, bias_start=0.0, with_w=False):
     shape = input_.get_shape().as_list()
+    # pdb.set_trace()
 
     with tf.variable_scope(scope or "Linear"):
         matrix = tf.get_variable("Matrix", [shape[1], output_size], tf.float32,

@@ -1,227 +1,238 @@
-# heavily brought code from https://gist.github.com/omoindrot/dedc857cdc0e680dfb1be99762990c9c/
-
-import argparse
+from __future__ import division
 import os
-import numpy as np
+import time
+from glob import glob
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
-import tensorflow.contrib.slim.nets
+import numpy as np
+import pdb
+from six.moves import xrange
+import argparse
+from ops import *
+
+parser = argparse.ArgumentParser(description='')
+parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
+parser.add_argument('--phase', dest='phase', default='train', help='train, test')
+parser.add_argument('--dataset_dir', dest='dataset_dir', default='data/classification', help='name of the dataset')
+parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint_classification', help='models are saved here')
+parser.add_argument('--log_dir', dest='log_dir', default='./log_classification', help='logs are saved here')
+parser.add_argument('--epochs', dest='epochs', type=int, default=100, help='# of epoch')
+parser.add_argument('--batch_size', dest='batch_size', type=int, default=64, help='# images in batch')
+parser.add_argument('--validation_split', dest='validation_split', type=float, default=0.1, help='random split validation set from training dataset')
+parser.add_argument('--crop_size', dest='crop_size', type=int, default=224, help='crop image size')
+parser.add_argument('--lr', dest='lr', type=float, default=0.0002, help='initial learning rate for adam')
+parser.add_argument('--beta1', dest='beta1', type=float, default=0.5, help='momentum term of adam')
+parser.add_argument('--print_freq', dest='print_freq', type=int, default=20, help='print the debug information every print_freq iterations')
+parser.add_argument('--continue_train', dest='continue_train', action="store_true", help='if continue training, load the latest model')
+parser.set_defaults(continue_train=False)
+
+args = parser.parse_args()
+
+class amyloid_pos_neg_classifier(object):
+    def __init__(self, sess, dataset_dir, log_dir, checkpoint_dir, epochs=100, validation_split=0.1,
+                    batch_size=64, crop_size=224, lr=0.0002, beta1=0.5,
+                    print_freq=100, continue_train=False):
+        self.sess = sess
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.dataset_dir = dataset_dir
+        self.checkpoint_dir = checkpoint_dir
+        self.log_dir = log_dir
+        self.validation_split = validation_split
+        self.crop_size = crop_size
+        self.lr = lr
+        self.beta1 = beta1
+        self.print_freq = print_freq
+        self.continue_train = continue_train
+
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+
+        self.build_model()
+
+    def build_model(self):
+        # image and label
+        self.input = tf.placeholder(tf.float32, [self.batch_size, self.crop_size, self.crop_size, 1],
+                                    name='input')
+        self.label = tf.placeholder(tf.float32)
+
+        # loss
+        self.output, self.output_logits, self.layer_feature = self.classifier(self.input)
+        self.loss = tf.nn.l2_loss(self.output - self.label)
+
+        # summary
+        self.loss_sum = tf.summary.scalar("training loss", self.loss)
+
+        # variables
+        self.t_vars = tf.trainable_variables()
+
+        # save model
+        self.saver = tf.train.Saver(max_to_keep=3)
+
+    def train(self):
+        # optimizer
+        optim = tf.train.AdamOptimizer(self.lr, beta1=self.beta1) \
+                          .minimize(self.loss, var_list=self.t_vars)
+        init_op = tf.global_variables_initializer()
+        self.sess.run(init_op)
+
+        # summary writer
+        file_path = self.log_dir
+        self.writer = tf.summary.FileWriter(file_path, self.sess.graph)
+
+        # load model
+        if self.continue_train == True and self.load(self.checkpoint_dir):
+            print(" [*] Load SUCCESS")
+        else:
+            print(" [!] Load failed...")
+
+        # load all data
+        data = glob('{}/train/*.{}'.format(self.dataset_dir, 'npz'))
+        np.random.shuffle(data)
+        training_data_num = int((1 - self.validation_split) * len(data))
+        training_data = data[:training_data_num]
+        validation_data = data[training_data_num:]
+        batch_idxs = len(training_data) // self.batch_size
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--train_dir', default='data/classification/train')
-parser.add_argument('--val_dir', default='data/classification/test')
-parser.add_argument('--pretrained_model_path', default='vgg_16.ckpt', type=str)
-parser.add_argument('--fine_tune_model_path', default='vgg_16_amyloid_ckpt/vgg_16', type=str)
-parser.add_argument('--batch_size', default=32, type=int)
-parser.add_argument('--num_workers', default=4, type=int)
-parser.add_argument('--num_epochs1', default=10, type=int)
-parser.add_argument('--num_epochs2', default=10, type=int)
-parser.add_argument('--learning_rate1', default=1e-3, type=float)
-parser.add_argument('--learning_rate2', default=1e-5, type=float)
-parser.add_argument('--dropout_keep_prob', default=0.5, type=float)
-parser.add_argument('--weight_decay', default=5e-4, type=float)
-parser.add_argument('--gpu', default='0', type=str)
+        counter = 0
+        start_time = time.time()
+        loss_best = 10000
+        # self.validate(validation_data)
+        for epoch in xrange(self.epochs):
+            np.random.shuffle(training_data)
+            for idx in xrange(0, batch_idxs):
+                # load data
+                batch_files = training_data[idx*self.batch_size:(idx+1)*self.batch_size]
+                batch = [self.load_data(batch_file) for batch_file in batch_files]
+                images = [b[0] for b in batch]
+                labels = [b[1] for b in batch]
+                images = np.array(images).astype(np.float32)
+                labels = np.reshape(np.array(labels), [self.batch_size, 1])
+
+                _, summary_str = self.sess.run([optim, self.loss_sum],
+                                        feed_dict={self.input:images, self.label:labels})
+
+                counter += 1
+                if counter % self.print_freq == 1:
+                    loss = self.loss.eval(feed_dict={self.input:images, self.label:labels})
+                    # output = self.output.eval(feed_dict={self.input:images, self.label:labels})
+                    # pdb.set_trace()
+
+                    print("Epoch: [%2d] [%4d/%4d] time: %4.4f, loss: %.8f" % (epoch, idx, batch_idxs,
+                            time.time() - start_time, loss))
+                    self.writer.add_summary(summary_str, counter)
+
+            # validate at the end of each epoch
+            loss_avg = self.validate(validation_data)
+            if loss_best > loss_avg: # getting better model, save
+                print("save best model!")
+                self.save(self.checkpoint_dir, counter, is_best=True)
+                loss_best = loss_avg
 
 
-def list_images(directory):
-    """
-    Get all the images and labels in directory/label/*.jpg
-    """
-    labels = os.listdir(directory)
-    # Sort the labels so that training and validation get them in the same order
-    labels.sort()
+    def classifier(self, image):
+        filter_num = [64, 64, 128, 256, 512]
+        kernel_size = [7, 3, 3, 3, 3]
+        stride = [2, 1, 2, 2, 2]
+        with tf.variable_scope("amyloid_classifier") as scope:
+            assert tf.get_variable_scope().reuse == False
 
-    files_and_labels = []
-    for label in labels:
-        for f in os.listdir(os.path.join(directory, label)):
-            files_and_labels.append((os.path.join(directory, label, f), label))
+            # conv1, [224,224,1]->[56,56,64]
+            with tf.variable_scope('conv1'):
+                x = conv2d(image, filter_num[0], k_h=kernel_size[0], k_w=kernel_size[0],
+                            d_h=stride[0], d_w=stride[0], name='conv_1')
+                x = bn(x, name='bn_1')
+                x = lrelu(x, name='lrelu_1')
+                x = tf.nn.max_pool(x, [1,3,3,1], [1,2,2,1], 'SAME')
+                conv1 = x
 
-    filenames, labels = zip(*files_and_labels)
-    filenames = list(filenames)
-    labels = list(labels)
-    unique_labels = list(set(labels))
+            # conv2, [56,56,64]->[56,56,64]
+            with tf.variable_scope('conv2_1'):
+                x = residual_block(x)
+            with tf.variable_scope('conv2_2'):
+                x = residual_block(x)
+                conv2 = x
 
-    label_to_int = {}
-    for i, label in enumerate(unique_labels):
-        label_to_int[label] = i
+            # conv3, [56,56,64]->[28,28,128]
+            with tf.variable_scope('conv3_1'):
+                x = residual_block(x, output_dim=filter_num[2], stride=stride[2], is_first=True)
+            with tf.variable_scope('conv3_2'):
+                x = residual_block(x)
+            conv3 = x
 
-    labels = [label_to_int[l] for l in labels]
+            # conv4, [28,28,128]->[14,14,256]
+            with tf.variable_scope('conv4_1'):
+                x = residual_block(x, output_dim=filter_num[3], stride=stride[3], is_first=True)
+            with tf.variable_scope('conv4_2'):
+                x = residual_block(x)
+            conv4 = x
 
-    return filenames, labels
+            # conv3, [14,14,256]->[7,7,512]
+            with tf.variable_scope('conv5_1'):
+                x = residual_block(x, output_dim=filter_num[4], stride=stride[4], is_first=True)
+            with tf.variable_scope('conv5_2'):
+                x = residual_block(x)
+            conv5 = x
 
+            # logits
+            with tf.variable_scope('logits'):
+                x = tf.reduce_mean(x, [1, 2])
+                x = linear(x, 1)
 
-def check_accuracy(sess, correct_prediction, is_training, dataset_init_op):
-    """
-    Check the accuracy of the model on either train or val (depending on dataset_init_op).
-    """
-    # Initialize the correct dataset
-    sess.run(dataset_init_op)
-    num_correct, num_samples = 0, 0
-    while True:
-        try:
-            correct_pred = sess.run(correct_prediction, {is_training: False})
-            num_correct += correct_pred.sum()
-            num_samples += correct_pred.shape[0]
-        except tf.errors.OutOfRangeError:
-            break
-
-    # Return the fraction of datapoints that were correctly classified
-    acc = float(num_correct) / num_samples
-    return acc
+            return tf.nn.sigmoid(x), x, [conv1, conv2, conv3, conv4, conv5]
 
 
-def main(args):
+    def validate(self, sample_files):
+        # load validation input
+        print("Loading validation images ...")
+        sample = [self.load_data(sample_file) for sample_file in sample_files]
+        labels = [b[1] for b in sample]
+        sample = [b[0] for b in sample]
+        sample = np.array(sample).astype(np.float32)
+
+        sample_images = [sample[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+        sample_images = np.array(sample_images)
+        sample_labels = [labels[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+
+        loss_counter = 0
+        for i, sample_image in enumerate(sample_images):
+            if sample_image.shape[0] < self.batch_size:
+                break
+            idx = i+1
+            loss = self.sess.run(self.loss, feed_dict={self.input:sample_image, self.label:sample_labels[i]})
+            loss_counter = loss + loss_counter
+        loss_avg = loss_counter / idx
+        print('average MSE Loss: ', loss_avg)
+        return loss_avg
+
+    def load_data(self, filename):
+        data = np.load(filename)
+        image = data['image']
+        edge = (image.shape[0] - self.crop_size) // 2
+        image = image[edge:edge+self.crop_size, edge:edge+self.crop_size, :]
+        label = data['label'].tolist()
+        return image, label
+
+def main(_):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    # Get the list of filenames and corresponding list of labels for training et validation
-    train_filenames, train_labels = list_images(args.train_dir)
-    val_filenames, val_labels = list_images(args.val_dir)
-    assert set(train_labels) == set(val_labels),\
-           "Train and val labels don't correspond:\n{}\n{}".format(set(train_labels),
-                                                                   set(val_labels))
-    num_classes = len(set(train_labels))
-
-    # Define a graph
-    graph = tf.Graph()
-    with graph.as_default():
-        # input data is of shape [256, 256, 3], in range of [-128,128] (similar to image-mean in VGG16)
-        # training data has been augmented by filpping
-        def preprocess(filename, label):
-            image_string = tf.read_file(filename)
-            image_decoded = tf.image.decode_jpeg(image_string, channels=3)
-            image = tf.cast(image_decoded, tf.float32)
-            crop_image = tf.image.resize_image_with_crop_or_pad(image, 224, 224)
-            return crop_image, label
-
-        # Training dataset
-        train_dataset = tf.contrib.data.Dataset.from_tensor_slices((train_filenames, train_labels))
-        train_dataset = train_dataset.map(preprocess,
-            num_threads=args.num_workers, output_buffer_size=args.batch_size)
-        train_dataset = train_dataset.shuffle(buffer_size=10000)  # don't forget to shuffle
-        batched_train_dataset = train_dataset.batch(args.batch_size)
-
-        # Validation dataset
-        val_dataset = tf.contrib.data.Dataset.from_tensor_slices((val_filenames, val_labels))
-        val_dataset = val_dataset.map(preprocess,
-            num_threads=args.num_workers, output_buffer_size=args.batch_size)
-        batched_val_dataset = val_dataset.batch(args.batch_size)
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
 
 
-        # Define an iterator that can operator on either dataset.
-        iterator = tf.contrib.data.Iterator.from_structure(batched_train_dataset.output_types,
-                                                           batched_train_dataset.output_shapes)
-        images, labels = iterator.get_next()
+    with tf.Session(config=config) as sess:
+        model = amyloid_pos_neg_classifier(sess, epochs=args.epochs, validation_split=args.validation_split,
+                        dataset_dir=args.dataset_dir, log_dir=args.log_dir, checkpoint_dir=args.checkpoint_dir,
+                        batch_size=args.batch_size, crop_size=args.crop_size, lr=args.lr, beta1=args.beta1,
+                        print_freq=args.print_freq, continue_train=args.continue_train)
 
-        train_init_op = iterator.make_initializer(batched_train_dataset)
-        val_init_op = iterator.make_initializer(batched_val_dataset)
-
-        # Indicates whether we are in training or in test mode
-        is_training = tf.placeholder(tf.bool)
-
-        # Load vgg16 net from slim
-        vgg = tf.contrib.slim.nets.vgg
-        with slim.arg_scope(vgg.vgg_arg_scope(weight_decay=args.weight_decay)):
-            logits, _ = vgg.vgg_16(images, num_classes=num_classes, is_training=is_training,
-                                   dropout_keep_prob=args.dropout_keep_prob)
-
-        # Specify where the model checkpoint is (pretrained weights).
-        model_path = args.pretrained_model_path
-        assert(os.path.isfile(model_path))
-
-        # Restore only the layers up to fc7 (included)
-        # Calling function `init_fn(sess)` will load all the pretrained weights.
-        variables_to_restore = tf.contrib.framework.get_variables_to_restore(exclude=['vgg_16/fc8'])
-        init_fn = tf.contrib.framework.assign_from_checkpoint_fn(model_path, variables_to_restore)
-
-        # Initialization operation from scratch for the new "fc8" layers
-        # `get_variables` will only return the variables whose name starts with the given pattern
-        fc8_variables = tf.contrib.framework.get_variables('vgg_16/fc8')
-        fc8_init = tf.variables_initializer(fc8_variables)
-
-        # Define loss
-        tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
-        loss = tf.losses.get_total_loss()
-
-        # First we want to train only the reinitialized last layer fc8 for a few epochs.
-        # We run minimize the loss only with respect to the fc8 variables (weight and bias).
-        fc8_optimizer = tf.train.GradientDescentOptimizer(args.learning_rate1)
-        fc8_train_op = fc8_optimizer.minimize(loss, var_list=fc8_variables)
-
-        # Then we want to finetune the entire model for a few epochs.
-        # We run minimize the loss only with respect to all the variables.
-        full_optimizer = tf.train.GradientDescentOptimizer(args.learning_rate2)
-        full_train_op = full_optimizer.minimize(loss)
-
-        # Evaluation metrics
-        prediction = tf.to_int32(tf.argmax(logits, 1))
-        correct_prediction = tf.equal(prediction, labels)
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
-        saver = tf.train.Saver(max_to_keep=5)
-
-        tf.get_default_graph().finalize()
-
-    # Define the session.
-    # We can call our training operations with `sess.run(train_op)` for instance
-    with tf.Session(graph=graph) as sess:
-        init_fn(sess)  # load the pretrained weights
-        sess.run(fc8_init)  # initialize the new fc8 layer
-
-        # acc holder
-        val_acc_best = 0
-        # define Saver
-
-        # Update only the last layer for a few epochs.
-        print('Start training the last layer')
-        for epoch in range(args.num_epochs1):
-            # Run an epoch over the training data.
-            print('Starting epoch %d / %d' % (epoch + 1, args.num_epochs1))
-            # Here we initialize the iterator with the training set.
-            # This means that we can go through an entire epoch until the iterator becomes empty.
-            sess.run(train_init_op)
-            while True:
-                try:
-                    _ = sess.run(fc8_train_op, {is_training: True})
-                except tf.errors.OutOfRangeError:
-                    break
-
-            # Check accuracy on the train and val sets every epoch.
-            train_acc = check_accuracy(sess, correct_prediction, is_training, train_init_op)
-            val_acc = check_accuracy(sess, correct_prediction, is_training, val_init_op)
-            print('Train accuracy: %f' % train_acc)
-            print('Val accuracy: %f\n' % val_acc)
-
-            # save fine-tuned model
-            if val_acc > val_acc_best:
-                val_acc_best = val_acc
-                save_path = saver.save(sess, args.fine_tune_model_path)
-                print('save best model in path: %s' % save_path)
-
-
-        # Train the entire model for a few more epochs, continuing with the *same* weights.
-        print('Start training all layer')
-        for epoch in range(args.num_epochs2):
-            print('Starting epoch %d / %d' % (epoch + 1, args.num_epochs2))
-            sess.run(train_init_op)
-            while True:
-                try:
-                    _ = sess.run(full_train_op, {is_training: True})
-                except tf.errors.OutOfRangeError:
-                    break
-
-            # Check accuracy on the train and val sets every epoch
-            train_acc = check_accuracy(sess, correct_prediction, is_training, train_init_op)
-            val_acc = check_accuracy(sess, correct_prediction, is_training, val_init_op)
-            print('Train accuracy: %f' % train_acc)
-            print('Val accuracy: %f\n' % val_acc)
-
-            # save fine-tuned model
-            if val_acc > val_acc_best:
-                val_acc_best = val_acc
-                save_path = saver.save(sess, args.fine_tune_model_path)
-                print('save best model in path: %s' % save_path)
-
+        if args.phase == 'train':
+            model.train()
+        else:
+            model.test()
 
 if __name__ == '__main__':
-    args = parser.parse_args()
-    main(args)
+    tf.app.run()

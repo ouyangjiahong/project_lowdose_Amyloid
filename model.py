@@ -357,14 +357,15 @@ class pix2pix(object):
             self.feat_match_flag = [1.0,1.0,1.0,1.0]
 
 
+        data = glob('{}/train/*.{}'.format(self.dataset_dir, self.data_type))
+        np.random.shuffle(data)
+        training_data_num = int((1 - self.validation_split) * len(data))
+        training_data = data[:training_data_num]
+        validation_data = data[training_data_num:]
+        batch_idxs = len(training_data) // self.batch_size
+
         for epoch in xrange(self.epochs):
-            # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
-            data = glob('{}/train/*.{}'.format(self.dataset_dir, self.data_type))
-            np.random.shuffle(data)
-            training_data_num = int((1 - self.validation_split) * len(data))
-            training_data = data[:training_data_num]
-            validation_data = data[training_data_num:]
-            batch_idxs = len(training_data) // self.batch_size
+            np.random.shuffle(training_data)
 
             # if epoch > 0:
             #     self.lc_lamb_cur = self.c_lamb
