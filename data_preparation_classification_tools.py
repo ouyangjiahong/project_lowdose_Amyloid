@@ -87,7 +87,7 @@ def export_data_to_jpg(data_train_gt, dir_numpy_compressed, \
         elif ext_data == 'npz':
             im_output = data_train_gt[i,:]
             with open(filepath,'w') as file_input:
-                np.savez_compressed(file_input, output=im_output)
+                np.savez_compressed(file_input, image=im_output, label=label)
         label_list.append(label)
         index_sample_accumuated+=1
 

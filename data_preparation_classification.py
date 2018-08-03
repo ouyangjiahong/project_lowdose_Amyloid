@@ -11,22 +11,22 @@ from data_preparation_classification_tools import *
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--set', dest='set', default='train', help='train, test')
-parser.add_argument('--dir_src_label', dest='dir_src_label', default='diagnosis_status_all.xlsx', help='path of the label xlsx')
-parser.add_argument('--dir_dst_label', dest='dir_dst_label', default='classification_label.npy', help='path of the data label')
+parser.add_argument('--dir_label_ori', dest='dir_label_ori', default='diagnosis_status_all.xlsx', help='path of the label xlsx')
+parser.add_argument('--dir_label_dst', dest='dir_label_dst', default='classification_label.npy', help='path of the data label')
 parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='/home/data/', help='folder of original data')
 parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/classification/', help='folder of jpg classification data')
-parser.add_argument('--norm', dest='norm', action='store_false', help='divided by volume mean value)')
-parser.set_defaults(norm=True)
+parser.add_argument('--is_norm', dest='is_norm', action='store_true', help='divided by volume mean value)')
+parser.set_defaults(is_norm=False)
 
 args = parser.parse_args()
 set = args.set
-dir_src_label = args.dir_src_label
-dir_dst_label = set + '_' + args.dir_dst_label
+dir_label_ori = args.dir_label_ori
+dir_label_dst = set + '_' + args.dir_label_dst
 dir_data_ori = args.dir_data_ori
 dir_data_raw = dir_data_ori + 'Amyloid/'
 dir_data_res = dir_data_ori + 'Amyloid_Kevin_result/'
 dir_data_dst = args.dir_data_dst
-norm = args.norm
+norm = args.is_norm
 
 dir_data_dst = dir_data_dst + set + '/'
 if not os.path.exists(dir_data_dst):
@@ -37,7 +37,7 @@ labels
 subj_number, idx, age, gender, diagnosis, consensus, fulldose 1, fulldose 2,
 pet+mr 1, pet+mr 2, petonly 1, petonly 2
 '''
-label_xls = px.load_workbook(dir_src_label)
+label_xls = px.load_workbook(dir_label_ori)
 sheet = label_xls.get_sheet_by_name(name='Sheet1')
 label_dict = {}
 num = 1
@@ -106,7 +106,7 @@ if set == 'test':
 else:
     using_set = train_set
 
-list_subject = [str(x) for x in using_set if os.path.isdir(os.path.join(dir_data_ori, str(x)))]
+list_subject = [str(x) for x in using_set if os.path.isdir(os.path.join(dir_data_ori, 'Amyloid', str(x)))]
 print('generating subject list:')
 print(list_subject)
 
@@ -180,5 +180,5 @@ for index_data in range(num_dataset_train):
     index_sample_total, label_list = export_data_to_jpg(data_train_gt, dir_data_dst,
                                         label, label_list, index_sample_total, ext_data)
 
-with open(dir_dst_label,'w') as file_input:
+with open(dir_label_dst,'w') as file_input:
     np.save(file_input, label_list)
