@@ -43,7 +43,7 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
     # scale
     if scale_by_norm:
         # remove the skull part to decrease noise data
-        data_load = data_load[20:-20,:]
+        data_load = data_load[25:-24,:]
 
         # normalize by mean value
         sum = np.sum(data_load)

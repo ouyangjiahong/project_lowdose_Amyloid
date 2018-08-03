@@ -30,7 +30,7 @@ args = parser.parse_args()
 class amyloid_pos_neg_classifier(object):
     def __init__(self, sess, dataset_dir, log_dir, checkpoint_dir, epochs=100, validation_split=0.1,
                     batch_size=64, crop_size=224, lr=0.0002, beta1=0.5,
-                    print_freq=100, continue_train=False):
+                    print_freq=100, continue_train=False, phase='train'):
         self.sess = sess
         self.batch_size = batch_size
         self.epochs = epochs
@@ -43,6 +43,7 @@ class amyloid_pos_neg_classifier(object):
         self.beta1 = beta1
         self.print_freq = print_freq
         self.continue_train = continue_train
+        self.phase = phase
 
         if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
@@ -72,6 +73,8 @@ class amyloid_pos_neg_classifier(object):
 
     def train(self):
         # optimizer
+        # self.phase = 'train'
+
         optim = tf.train.AdamOptimizer(self.lr, beta1=self.beta1) \
                           .minimize(self.loss, var_list=self.t_vars)
         init_op = tf.global_variables_initializer()
@@ -133,9 +136,15 @@ class amyloid_pos_neg_classifier(object):
 
 
     def classifier(self, image):
-        filter_num = [64, 64, 128, 256, 512]
+        filter_num = [32, 32, 64, 128, 256]
         kernel_size = [7, 3, 3, 3, 3]
         stride = [2, 1, 2, 2, 2]
+
+        if self.phase == 'train':
+            is_training = True
+        else:
+            is_training = False
+
         with tf.variable_scope("amyloid_classifier") as scope:
             assert tf.get_variable_scope().reuse == False
 
@@ -143,37 +152,37 @@ class amyloid_pos_neg_classifier(object):
             with tf.variable_scope('conv1'):
                 x = conv2d(image, filter_num[0], k_h=kernel_size[0], k_w=kernel_size[0],
                             d_h=stride[0], d_w=stride[0], name='conv_1')
-                x = bn(x, name='bn_1')
+                x = bn(x, name='bn_1', is_training=is_training)
                 x = lrelu(x, name='lrelu_1')
                 x = tf.nn.max_pool(x, [1,3,3,1], [1,2,2,1], 'SAME')
                 conv1 = x
 
             # conv2, [56,56,64]->[56,56,64]
             with tf.variable_scope('conv2_1'):
-                x = residual_block(x)
+                x = residual_block(x, is_training=is_training)
             with tf.variable_scope('conv2_2'):
-                x = residual_block(x)
+                x = residual_block(x, is_training=is_training)
                 conv2 = x
 
             # conv3, [56,56,64]->[28,28,128]
             with tf.variable_scope('conv3_1'):
-                x = residual_block(x, output_dim=filter_num[2], stride=stride[2], is_first=True)
+                x = residual_block(x, output_dim=filter_num[2], stride=stride[2], is_first=True, is_training=is_training)
             with tf.variable_scope('conv3_2'):
-                x = residual_block(x)
+                x = residual_block(x, is_training=is_training)
             conv3 = x
 
             # conv4, [28,28,128]->[14,14,256]
             with tf.variable_scope('conv4_1'):
-                x = residual_block(x, output_dim=filter_num[3], stride=stride[3], is_first=True)
+                x = residual_block(x, output_dim=filter_num[3], stride=stride[3], is_first=True, is_training=is_training)
             with tf.variable_scope('conv4_2'):
-                x = residual_block(x)
+                x = residual_block(x, is_training=is_training)
             conv4 = x
 
             # conv3, [14,14,256]->[7,7,512]
             with tf.variable_scope('conv5_1'):
-                x = residual_block(x, output_dim=filter_num[4], stride=stride[4], is_first=True)
+                x = residual_block(x, output_dim=filter_num[4], stride=stride[4], is_first=True, is_training=is_training)
             with tf.variable_scope('conv5_2'):
-                x = residual_block(x)
+                x = residual_block(x, is_training=is_training)
             conv5 = x
 
             # logits
@@ -244,6 +253,60 @@ class amyloid_pos_neg_classifier(object):
         else:
             return False
 
+    def test(self):
+        """Test classifier"""
+        init_op = tf.global_variables_initializer()
+        self.sess.run(init_op)
+
+        # load ckpt
+        if self.load(self.checkpoint_dir):
+            print(" [*] Load SUCCESS")
+        else:
+            print(" [!] Load failed...")
+
+        # load data
+        sample_files = glob('{}/test/*.{}'.format(self.dataset_dir, 'npz'))
+        n = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
+        sample_files = [x for (y, x) in sorted(zip(n, sample_files))]
+
+        print("Loading testing images ...")
+        sample = [self.load_data(sample_file) for sample_file in sample_files]
+        labels = [b[1] for b in sample]
+        sample = [b[0] for b in sample]
+        sample = np.array(sample).astype(np.float32)
+
+        sample_images = [sample[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+        sample_images = np.array(sample_images)
+        sample_labels = [labels[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+
+        loss_counter = 0
+        label_list = []
+        output_list = []
+        for i, sample_image in enumerate(sample_images):
+            if sample_image.shape[0] < self.batch_size:
+                break
+            idx = i+1
+            labels = sample_labels[i]
+            labels = np.reshape(np.array(labels), [self.batch_size, 1])
+            loss, output = self.sess.run([self.loss, self.output], feed_dict={self.input:sample_image, self.label:labels})
+            loss_counter = loss + loss_counter
+            label_list.append(labels)
+            output_list.append(output)
+            # TODO: save output
+        loss_avg = loss_counter / idx
+        print('average MSE Loss: ', loss_avg)
+
+        # save result
+        label_list = np.concatenate(label_list, axis=0)
+        output_list = np.concatenate(output_list, axis=0)
+        with open('classification_test.npz','w') as file_input:
+            np.savez_compressed(file_input, label=label_list, output=output_list)
+
+        res = np.concatenate([label_list, output_list, abs(label_list - output_list)], axis=1)
+        np.savetxt('classification_test.txt', res, fmt='%3f', delimiter='   ')
+
 def main(_):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     config = tf.ConfigProto()
@@ -254,7 +317,7 @@ def main(_):
         model = amyloid_pos_neg_classifier(sess, epochs=args.epochs, validation_split=args.validation_split,
                         dataset_dir=args.dataset_dir, log_dir=args.log_dir, checkpoint_dir=args.checkpoint_dir,
                         batch_size=args.batch_size, crop_size=args.crop_size, lr=args.lr, beta1=args.beta1,
-                        print_freq=args.print_freq, continue_train=args.continue_train)
+                        print_freq=args.print_freq, continue_train=args.continue_train, phase=args.phase)
 
         if args.phase == 'train':
             model.train()

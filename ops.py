@@ -37,12 +37,12 @@ def binary_cross_entropy(preds, targets, name=None):
                               (1. - targets) * tf.log(1. - preds + eps)))
 
 # use only in amyloid classifier
-def bn(x, epsilon=1e-3, momentum = 0.99, phase='training', name="batch_norm"):
+def bn(x, epsilon=1e-3, momentum = 0.99, is_training=True, name="batch_norm"):
     return tf.contrib.layers.batch_norm(x, decay=momentum, updates_collections=None,
-                                is_training=phase, epsilon=epsilon, scale=True, scope=name)
+                                is_training=is_training, epsilon=epsilon, scale=True, scope=name)
 
 def residual_block(x, output_dim=1, stride=1, stddev=0.02,
-                    center=False, block_name="conv", is_first=False):
+                    center=False, block_name="conv", is_first=False, is_training=True):
     d_h = stride
     d_w = stride
     input_dim = x.get_shape()[-1]
@@ -63,10 +63,10 @@ def residual_block(x, output_dim=1, stride=1, stddev=0.02,
     if not is_first:
         output_dim = input_dim
     x = conv2d(x, output_dim, k_h=3, k_w=3, d_h=d_h, d_w=d_w, stddev=0.02, center=False, name='conv_1')
-    x = bn(x, name='bn_1')
+    x = bn(x, name='bn_1', is_training=is_training)
     x = lrelu(x, name='lrelu_1')
     x = conv2d(x, output_dim, k_h=3, k_w=3, d_h=1, d_w=1, stddev=0.02, center=False, name='conv_2')
-    x = bn(x, name='bn_2')
+    x = bn(x, name='bn_2', is_training=is_training)
     x = tf.nn.dropout(x, 0.5)       # TODO: not sure should use dropout or not
     x = x + shortcut
     x = lrelu(x, name='lrelu_2')
