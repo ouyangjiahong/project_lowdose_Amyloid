@@ -199,11 +199,14 @@ class amyloid_pos_neg_classifier(object):
                          for i in xrange(0, len(sample), self.batch_size)]
 
         loss_counter = 0
+        # pdb.set_trace()
         for i, sample_image in enumerate(sample_images):
             if sample_image.shape[0] < self.batch_size:
                 break
             idx = i+1
-            loss = self.sess.run(self.loss, feed_dict={self.input:sample_image, self.label:sample_labels[i]})
+            labels = sample_labels[i]
+            labels = np.reshape(np.array(labels), [self.batch_size, 1])
+            loss = self.sess.run(self.loss, feed_dict={self.input:sample_image, self.label:labels})
             loss_counter = loss + loss_counter
         loss_avg = loss_counter / idx
         print('average MSE Loss: ', loss_avg)
