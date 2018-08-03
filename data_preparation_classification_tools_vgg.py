@@ -42,15 +42,15 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
 
     # scale
     if scale_by_norm:
+        data_load = data_load / np.linalg.norm(data_load.flatten())
         # remove the skull part to decrease noise data
-        data_load = data_load[20:-20,:]
-
-        # normalize by mean value
-        sum = np.sum(data_load)
-        nonzero_num = np.sum(data_load > 0)
-        norm = sum / float(nonzero_num)
-        data_load = data_load / norm
-        print(np.max(data_load))
+        data_load = data_load[10:-10]
+        for i in range(data_load.shape[0]):
+            img = data_load[i,:,:,:]
+            max_value = np.amax(img)
+            if max_value == 0:
+                max_value = 1
+            data_load[i,:,:,:] = 256 * img / max_value - 1
 
     # finish loading data
     print('loaded from {0}, data size {1} (sample, x, y, channel)'.format(path_load, data_load.shape))
@@ -69,7 +69,7 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_norm=True):
 
 
 def export_data_to_jpg(data_train_gt, dir_numpy_compressed, \
-                        label, label_list, index_sample_total=0, ext_data = 'npz'):
+                        index_sample_total=0, ext_data = 'jpg'):
     index_sample_accumuated = index_sample_total
     num_sample_in_data = data_train_gt.shape[0]
     if not os.path.exists(dir_numpy_compressed):
@@ -80,18 +80,12 @@ def export_data_to_jpg(data_train_gt, dir_numpy_compressed, \
           index_sample_total)
 
     for i in xrange(num_sample_in_data):
-        filepath = os.path.join(dir_numpy_compressed,'{0}.{1}'.format(index_sample_accumuated, ext_data))
-        if ext_data == 'jpg':
-            im_output = np.tile(data_train_gt[i,:], (1,1,3))
-            sci.misc.imsave(filepath, im_output)
-        elif ext_data == 'npz':
-            im_output = data_train_gt[i,:]
-            with open(filepath,'w') as file_input:
-                np.savez_compressed(file_input, output=im_output)
-        label_list.append(label)
+        im_output = np.tile(data_train_gt[i,:], (1,1,3))
+        filepath_jpg = os.path.join(dir_numpy_compressed,'{0}.{1}'.format(index_sample_accumuated, ext_data))
+        sci.misc.imsave(filepath_jpg, im_output)
         index_sample_accumuated+=1
 
     print('exported data dimension {0}to {1} for index {2}',
           data_train_gt.shape, dir_numpy_compressed,
           [index_sample_total,index_sample_accumuated])
-    return index_sample_accumuated, label_list
+    return index_sample_accumuated

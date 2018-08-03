@@ -11,44 +11,74 @@ from data_preparation_classification_tools import *
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--set', dest='set', default='train', help='train, test')
-parser.add_argument('--dir_label', dest='dir_label', default='diagnosis_status.xlsx', help='path of the label xlsx')
+parser.add_argument('--dir_src_label', dest='dir_src_label', default='diagnosis_status_all.xlsx', help='path of the label xlsx')
+parser.add_argument('--dir_dst_label', dest='dir_dst_label', default='classification_label.npy', help='path of the data label')
 parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='/home/data/', help='folder of original data')
 parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/classification/', help='folder of jpg classification data')
-parser.add_argument('--norm', dest='norm', action='store_false', help='divided by forbenius norm than ax value, transform to [-128,128] (similar to value of image-vgg_mean)')
+parser.add_argument('--norm', dest='norm', action='store_false', help='divided by volume mean value)')
 parser.set_defaults(norm=True)
 
 args = parser.parse_args()
 set = args.set
-dir_label = args.dir_label
+dir_src_label = args.dir_src_label
+dir_dst_label = set + '_' + args.dir_dst_label
 dir_data_ori = args.dir_data_ori
+dir_data_raw = dir_data_ori + 'Amyloid/'
+dir_data_res = dir_data_ori + 'Amyloid_Kevin_result/'
 dir_data_dst = args.dir_data_dst
 norm = args.norm
 
 dir_data_dst = dir_data_dst + set + '/'
 if not os.path.exists(dir_data_dst):
     os.makedirs(dir_data_dst)
-path = dir_data_dst + 'N'
-if not os.path.exists(path):
-    os.makedirs(path)
-path = dir_data_dst + 'P'
-if not os.path.exists(path):
-    os.makedirs(path)
 
 '''
 labels
+subj_number, idx, age, gender, diagnosis, consensus, fulldose 1, fulldose 2,
+pet+mr 1, pet+mr 2, petonly 1, petonly 2
 '''
-label_xls = px.load_workbook(dir_label)
+label_xls = px.load_workbook(dir_src_label)
 sheet = label_xls.get_sheet_by_name(name='Sheet1')
 label_dict = {}
 num = 1
 for row in sheet.iter_rows():
-    if num == 1:
+    if num == 1 or num == 2:    # title
         num += 1
         continue
     # pdb.set_trace()
-    label = str(sheet.cell(column=5, row=num).value)
-    number = str(sheet.cell(column=6, row=num).value)
-    label_dict[number] = label
+    subj = str(sheet.cell(column=1, row=num).value)
+
+    # full_dose label
+    label1 = str(sheet.cell(column=7, row=num).value)
+    label2 = str(sheet.cell(column=8, row=num).value)
+    if label1 == 'P' and label2 == 'P':
+        fulldose_label = 1
+    elif label1 == 'P' or label2 == 'P':
+        fulldose_label = 0.5
+    else:
+        fulldose_label = 0
+
+    # pet+mr label
+    label1 = str(sheet.cell(column=9, row=num).value)
+    label2 = str(sheet.cell(column=10, row=num).value)
+    if label1 == 'P' and label2 == 'P':
+        pet_mr_label = 1
+    elif label1 == 'P' or label2 == 'P':
+        pet_mr_label = 0.5
+    else:
+        pet_mr_label = 0
+
+    # petonly label
+    label1 = str(sheet.cell(column=11, row=num).value)
+    label2 = str(sheet.cell(column=12, row=num).value)
+    if label1 == 'P' and label2 == 'P':
+        petonly_label = 1
+    elif label1 == 'P' or label2 == 'P':
+        petonly_label = 0.5
+    else:
+        petonly_label = 0
+
+    label_dict[subj] = [fulldose_label, pet_mr_label, petonly_label]
     num += 1
 print(label_dict)
 
@@ -61,10 +91,15 @@ filename_init = ''
 #             2014, 2016, 2063, 2152, 2157, 2185, 2214, 2304, 2314, 2317,
 #             2376, 2414, 2416, 2425, 2427, 2482, 2511, 2516, 50767]
 
-train_set = [1350, 1726, 1750, 1758, 1762, 1785, 1791, 1827, 1838, 1905, 1907,
+# train_set = [1350, 1726, 1750, 1758, 1762, 1785, 1791, 1827, 1838, 1905, 1907,
+#             1978, 2014, 2016, 2157, 2214, 2304, 2317, 2376, 2427, 2414, 1961,
+#             2185, 2152, 1375, 1789, 1816, 1965, 2314, 2511, 2416, 2425]
+# test_set = [1355, 1732, 1947, 2482, 2516, 2063, 1923, 50767]
+
+train_set = [1350, 1726, 1750, 1762, 1785, 1791, 1827, 1838, 1905, 1907,
             1978, 2014, 2016, 2157, 2214, 2304, 2317, 2376, 2427, 2414, 1961,
-            2185, 2152, 1375, 1789, 1816, 1965, 2314, 2511, 2416, 2425]
-test_set = [1355, 1732, 1947, 2482, 2516, 2063, 1923, 50767]
+            2185, 2152, 1789, 1816, 1965, 2314, 2511, 2416, 2482]
+test_set = [1355, 1732, 1947, 2516, 2063, 50767, 1375, 1758, 1923, 2425]
 
 if set == 'test':
     using_set = test_set
@@ -77,12 +112,20 @@ print(list_subject)
 
 list_dataset_train = []
 list_dataset_label = []
-filename_PET = 'pet_nifti/500_.nii.gz'
+filename_fulldose = 'pet_nifti/500_.nii.gz'
+filename_pet_mr = 'mc.nii.gz'
+filename_petonly = 'petonly.nii.gz'
+
 
 for subject_id in list_subject:
-    dir_subject = os.path.join(dir_data_ori, subject_id)
-    list_dataset_train.append({'gt':os.path.join(dir_subject, filename_PET)})
-    list_dataset_label.append(label_dict[subject_id])
+    dir_subject = os.path.join(dir_data_raw, subject_id)
+    list_dataset_train.append({'gt':os.path.join(dir_subject, filename_fulldose)})
+    list_dataset_label.append(label_dict[subject_id][0])
+    dir_subject = os.path.join(dir_data_res, subject_id)
+    list_dataset_train.append({'gt':os.path.join(dir_subject, filename_pet_mr)})
+    list_dataset_label.append(label_dict[subject_id][1])
+    list_dataset_train.append({'gt':os.path.join(dir_subject, filename_petonly)})
+    list_dataset_label.append(label_dict[subject_id][2])
 
 num_dataset_train = len(list_dataset_train)
 print('process {0} data description'.format(num_dataset_train))
@@ -119,18 +162,12 @@ print('will augment data with {0} augmentations'.format(num_augment))
 '''
 file loading related
 '''
-ext_dicom = 'MRDC'
-key_sort = lambda x: int(x.split('.')[-1])
-scale_method = lambda x:np.mean(np.abs(x))
-scale_by_mean = False
-scale_factor = 1/32768.
-ext_data = 'jpg'
+ext_data = 'npz'
 
 '''
 generate train data
 '''
-list_train_input = []
-list_train_gt = []
+label_list = []
 index_sample_total = 0
 for index_data in range(num_dataset_train):
     # directory
@@ -140,4 +177,8 @@ for index_data in range(num_dataset_train):
     data_train_gt = prepare_data_from_nifti(path_train_gt, list_augments, scale_by_norm=norm)
 
     # export
-    index_sample_total = export_data_to_jpg(data_train_gt, dir_data_dst+label+'/', index_sample_total, ext_data)
+    index_sample_total, label_list = export_data_to_jpg(data_train_gt, dir_data_dst,
+                                        label, label_list, index_sample_total, ext_data)
+
+with open(dir_dst_label,'w') as file_input:
+    np.save(file_input, label_list)
