@@ -143,7 +143,7 @@ class pix2pix(object):
         self.vgg = vgg.vgg_16
         self.build_model()
 
-    def calculator(self):
+    def calculator_vgg(self):
         # calculate the perceptual loss using pre-trained VGG16 net
         if not(self.is_lc or self.is_ls):
             return tf.constant(0.0), tf.constant(0.0)
@@ -215,7 +215,7 @@ class pix2pix(object):
 
     def build_model(self):
         self.real_data = tf.placeholder(tf.float32,
-                                        [self.batch_size, self.input_size, self.input_size,
+                                        [None, self.input_size, self.input_size,
                                          self.input_c_dim + self.output_c_dim],
                                         name='real_A_and_B_images')
 
@@ -255,7 +255,7 @@ class pix2pix(object):
             self.g_loss = sum([self.feat_match_flag_holder[i]*self.feat_match_loss[i] for i in range(len(self.feat_match_loss))])
 
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
-        self.content_loss, self.style_loss = self.calculator()
+        self.content_loss, self.style_loss = self.calculator_vgg()
 
         # combination of each loss
         self.l1_lambda_holder = tf.placeholder(tf.float32)
@@ -624,8 +624,8 @@ class pix2pix(object):
 
         L1_loss_counter = 0
         for i, sample_image in enumerate(sample_images):
-            if sample_image.shape[0] < self.batch_size:
-                break
+            # if sample_image.shape[0] < self.batch_size:
+            #     break
             idx = i+1
             samples, L1_loss = self.sess.run(
                 [self.fake_B_sample, self.L1_loss],
@@ -674,8 +674,8 @@ class pix2pix(object):
         input_stat_all = []
         output_stat_all = []
         for i, sample_image in enumerate(sample_images):
-            if sample_image.shape[0] < self.batch_size:
-                break
+            # if sample_image.shape[0] < self.batch_size:
+            #     break
             idx = i+1
             print("sampling image ", idx)
             samples = self.sess.run(

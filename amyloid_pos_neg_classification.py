@@ -54,7 +54,7 @@ class amyloid_pos_neg_classifier(object):
 
     def build_model(self):
         # image and label
-        self.input = tf.placeholder(tf.float32, [self.batch_size, self.crop_size, self.crop_size, 1],
+        self.input = tf.placeholder(tf.float32, [None, self.crop_size, self.crop_size, 1],
                                     name='input')
         self.label = tf.placeholder(tf.float32)
 
@@ -137,6 +137,7 @@ class amyloid_pos_neg_classifier(object):
 
     def classifier(self, image):
         filter_num = [32, 32, 64, 128, 256]
+        # filter_num = [64, 64, 128, 256, 512]
         kernel_size = [7, 3, 3, 3, 3]
         stride = [2, 1, 2, 2, 2]
 
@@ -210,11 +211,10 @@ class amyloid_pos_neg_classifier(object):
         loss_counter = 0
         # pdb.set_trace()
         for i, sample_image in enumerate(sample_images):
-            if sample_image.shape[0] < self.batch_size:
-                break
-            idx = i+1
             labels = sample_labels[i]
-            labels = np.reshape(np.array(labels), [self.batch_size, 1])
+            idx = i+1
+            # if sample_image.shape[0] < self.batch_size:
+            labels = np.reshape(np.array(labels), [-1, 1])
             loss = self.sess.run(self.loss, feed_dict={self.input:sample_image, self.label:labels})
             loss_counter = loss + loss_counter
         loss_avg = loss_counter / idx
@@ -285,6 +285,53 @@ class amyloid_pos_neg_classifier(object):
         label_list = []
         output_list = []
         for i, sample_image in enumerate(sample_images):
+            # if sample_image.shape[0] < self.batch_size:
+            #     break
+            idx = i+1
+            labels = sample_labels[i]
+            labels = np.reshape(np.array(labels), [-1, 1])
+            loss, output = self.sess.run([self.loss, self.output], feed_dict={self.input:sample_image, self.label:labels})
+            loss_counter = loss + loss_counter
+            label_list.append(labels)
+            output_list.append(output)
+            # TODO: save output
+        loss_avg = loss_counter / idx
+        print('average MSE Loss: ', loss_avg)
+
+        # save result
+        label_list = np.concatenate(label_list, axis=0)
+        output_list = np.concatenate(output_list, axis=0)
+        with open('classification_test.npz','w') as file_input:
+            np.savez_compressed(file_input, label=label_list, output=output_list)
+
+        res = np.concatenate([label_list, output_list, abs(label_list - output_list)], axis=1)
+        np.savetxt('classification_test.txt', res, fmt='%3f', delimiter='   ')
+        print('average MAE Loss: ', np.mean(abs(label_list - output_list)))
+
+    def feature_extractor(self, images):
+        """feature extractor"""
+
+        # load data
+        sample_files = glob('{}/test/*.{}'.format(self.dataset_dir, 'npz'))
+        n = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
+        sample_files = [x for (y, x) in sorted(zip(n, sample_files))]
+
+        print("Loading testing images ...")
+        sample = [self.load_data(sample_file) for sample_file in sample_files]
+        labels = [b[1] for b in sample]
+        sample = [b[0] for b in sample]
+        sample = np.array(sample).astype(np.float32)
+
+        sample_images = [sample[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+        sample_images = np.array(sample_images)
+        sample_labels = [labels[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+
+        loss_counter = 0
+        label_list = []
+        output_list = []
+        for i, sample_image in enumerate(sample_images):
             if sample_image.shape[0] < self.batch_size:
                 break
             idx = i+1
@@ -306,6 +353,8 @@ class amyloid_pos_neg_classifier(object):
 
         res = np.concatenate([label_list, output_list, abs(label_list - output_list)], axis=1)
         np.savetxt('classification_test.txt', res, fmt='%3f', delimiter='   ')
+        print('average MAE Loss: ', np.mean(abs(label_list - output_list)))
+
 
 def main(_):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
