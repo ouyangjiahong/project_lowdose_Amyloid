@@ -9,26 +9,10 @@ from six.moves import xrange
 import argparse
 from ops import *
 
-parser = argparse.ArgumentParser(description='')
-parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
-parser.add_argument('--phase', dest='phase', default='train', help='train, test')
-parser.add_argument('--dataset_dir', dest='dataset_dir', default='data/classification', help='name of the dataset')
-parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint_classification', help='models are saved here')
-parser.add_argument('--log_dir', dest='log_dir', default='./log_classification', help='logs are saved here')
-parser.add_argument('--epochs', dest='epochs', type=int, default=100, help='# of epoch')
-parser.add_argument('--batch_size', dest='batch_size', type=int, default=64, help='# images in batch')
-parser.add_argument('--validation_split', dest='validation_split', type=float, default=0.1, help='random split validation set from training dataset')
-parser.add_argument('--crop_size', dest='crop_size', type=int, default=224, help='crop image size')
-parser.add_argument('--lr', dest='lr', type=float, default=0.0002, help='initial learning rate for adam')
-parser.add_argument('--beta1', dest='beta1', type=float, default=0.5, help='momentum term of adam')
-parser.add_argument('--print_freq', dest='print_freq', type=int, default=20, help='print the debug information every print_freq iterations')
-parser.add_argument('--continue_train', dest='continue_train', action="store_true", help='if continue training, load the latest model')
-parser.set_defaults(continue_train=False)
-
-args = parser.parse_args()
 
 class amyloid_pos_neg_classifier(object):
-    def __init__(self, sess, dataset_dir, log_dir, checkpoint_dir, epochs=100, validation_split=0.1,
+    def __init__(self, sess, dataset_dir='data/classification/', log_dir='log_classification/',
+                    checkpoint_dir='checkpoint_classification/', epochs=100, validation_split=0.1,
                     batch_size=64, crop_size=224, lr=0.0002, beta1=0.5,
                     print_freq=100, continue_train=False, phase='train'):
         self.sess = sess
@@ -54,8 +38,7 @@ class amyloid_pos_neg_classifier(object):
 
     def build_model(self):
         # image and label
-        self.input = tf.placeholder(tf.float32, [None, self.crop_size, self.crop_size, 1],
-                                    name='input')
+        self.input = tf.placeholder(tf.float32, [None, self.crop_size, self.crop_size, 1], name='input')
         self.label = tf.placeholder(tf.float32)
 
         # loss
@@ -294,7 +277,6 @@ class amyloid_pos_neg_classifier(object):
             loss_counter = loss + loss_counter
             label_list.append(labels)
             output_list.append(output)
-            # TODO: save output
         loss_avg = loss_counter / idx
         print('average MSE Loss: ', loss_avg)
 
@@ -308,70 +290,9 @@ class amyloid_pos_neg_classifier(object):
         np.savetxt('classification_test.txt', res, fmt='%3f', delimiter='   ')
         print('average MAE Loss: ', np.mean(abs(label_list - output_list)))
 
-    def feature_extractor(self, images):
+    def feature_extract(self, images):
         """feature extractor"""
+        # TODO: check shape
+        layer_feature, output = self.sess.run([self.layer_feature, self.output], feed_dict={self.input:images})   # TODO: maybe need labels
 
-        # load data
-        sample_files = glob('{}/test/*.{}'.format(self.dataset_dir, 'npz'))
-        n = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
-        sample_files = [x for (y, x) in sorted(zip(n, sample_files))]
-
-        print("Loading testing images ...")
-        sample = [self.load_data(sample_file) for sample_file in sample_files]
-        labels = [b[1] for b in sample]
-        sample = [b[0] for b in sample]
-        sample = np.array(sample).astype(np.float32)
-
-        sample_images = [sample[i:i+self.batch_size]
-                         for i in xrange(0, len(sample), self.batch_size)]
-        sample_images = np.array(sample_images)
-        sample_labels = [labels[i:i+self.batch_size]
-                         for i in xrange(0, len(sample), self.batch_size)]
-
-        loss_counter = 0
-        label_list = []
-        output_list = []
-        for i, sample_image in enumerate(sample_images):
-            if sample_image.shape[0] < self.batch_size:
-                break
-            idx = i+1
-            labels = sample_labels[i]
-            labels = np.reshape(np.array(labels), [self.batch_size, 1])
-            loss, output = self.sess.run([self.loss, self.output], feed_dict={self.input:sample_image, self.label:labels})
-            loss_counter = loss + loss_counter
-            label_list.append(labels)
-            output_list.append(output)
-            # TODO: save output
-        loss_avg = loss_counter / idx
-        print('average MSE Loss: ', loss_avg)
-
-        # save result
-        label_list = np.concatenate(label_list, axis=0)
-        output_list = np.concatenate(output_list, axis=0)
-        with open('classification_test.npz','w') as file_input:
-            np.savez_compressed(file_input, label=label_list, output=output_list)
-
-        res = np.concatenate([label_list, output_list, abs(label_list - output_list)], axis=1)
-        np.savetxt('classification_test.txt', res, fmt='%3f', delimiter='   ')
-        print('average MAE Loss: ', np.mean(abs(label_list - output_list)))
-
-
-def main(_):
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-
-
-    with tf.Session(config=config) as sess:
-        model = amyloid_pos_neg_classifier(sess, epochs=args.epochs, validation_split=args.validation_split,
-                        dataset_dir=args.dataset_dir, log_dir=args.log_dir, checkpoint_dir=args.checkpoint_dir,
-                        batch_size=args.batch_size, crop_size=args.crop_size, lr=args.lr, beta1=args.beta1,
-                        print_freq=args.print_freq, continue_train=args.continue_train, phase=args.phase)
-
-        if args.phase == 'train':
-            model.train()
-        else:
-            model.test()
-
-if __name__ == '__main__':
-    tf.app.run()
+        return layer_feature, output
