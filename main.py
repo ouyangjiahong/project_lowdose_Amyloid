@@ -62,6 +62,7 @@ parser.add_argument('--is_dicom', dest='is_dicom', action="store_true", help='wh
 parser.set_defaults(is_dicom=False)
 parser.add_argument('--is_max_norm', dest='is_max_norm', action="store_true", help="whether norm by max value of each slices, defualt no")
 parser.set_defaults(is_max_norm=False)
+parser.add_argument('--extractor', dest='extractor', default='amyloid', help='feature extractor for perceptual loss, amyloid or vgg')
 args = parser.parse_args()
 
 def main(_):
@@ -90,7 +91,7 @@ def main(_):
                         df_dim=args.ndf, lr=args.lr, beta1=args.beta1, save_epoch_freq=args.save_epoch_freq,
                         save_best=args.save_best, print_freq=args.print_freq, sample_freq=args.sample_freq,
                         continue_train=args.continue_train, L1_lamb=args.L1_lambda, c_lamb=args.c_lambda, s_lamb=args.s_lambda,
-                        data_type=args.data_type, is_dicom=args.is_dicom, is_max_norm=args.is_max_norm)
+                        data_type=args.data_type, is_dicom=args.is_dicom, is_max_norm=args.is_max_norm, extractor=args.extractor)
 
         if args.phase == 'train':
             model.train()

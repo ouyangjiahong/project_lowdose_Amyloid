@@ -12,6 +12,7 @@ from functools import reduce
 
 from ops import *
 from utils import *
+from amyloid_pos_neg_classification import amyloid_pos_neg_classifier
 
 EPS = 1e-12
 
@@ -24,7 +25,7 @@ class pix2pix(object):
                     test_dir=None, epochs=200, batch_size=1, feat_match=False,
                     dimension=2, block=4, input_size=256, output_size=256,
                     input_c_dim=3, output_c_dim=1, gf_dim=64, g_times=1,
-                    df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50,
+                    df_dim=64, lr=0.0002, beta1=0.5, save_epoch_freq=50, extractor='amyloid',
                     save_best=False, print_freq=50, sample_freq=100, is_dicom=False, is_max_norm=True,
                     continue_train=False, L1_lamb=100, c_lamb=100, s_lamb=100, data_type='npz'):
 
@@ -140,7 +141,11 @@ class pix2pix(object):
         if not os.path.exists(path_tmp):
             os.makedirs(path_tmp)
 
-        self.vgg = vgg.vgg_16
+        self.extractor = extractor
+        if self.extractor == 'vgg':
+            self.vgg = vgg.vgg_16
+        else:
+            self.amyloid_classifier = amyloid_pos_neg_classifier(self.sess, phase='test')
         self.build_model()
 
     def calculator_vgg(self):
@@ -204,6 +209,54 @@ class pix2pix(object):
 
         return content_loss, style_loss
 
+    def calculator_amyloid(self):
+        # pdb.set_trace()
+        if not(self.is_lc or self.is_ls):
+            return tf.constant(0.0), tf.constant(0.0)
+
+        # resize from 256 to 224 by central cropping
+        real_B_224 = tf.image.resize_image_with_crop_or_pad(self.real_B, 224, 224)
+        fake_B_224 = tf.image.resize_image_with_crop_or_pad(self.fake_B, 224, 224)
+
+        # load amyloid classifier ckpt
+        if self.amyloid_classifier.load(self.amyloid_classifier.checkpoint_dir):
+            print(" [*] Load amyloid classifier SUCCESS")
+        else:
+            raise ValueError("Load amyloid classifier failed...")
+
+        # pdb.set_trace()
+        # feature: conv1~5
+        self.classifier_output_real, self.classifier_feature_real = self.amyloid_classifier.feature_extract(real_B_224)
+        self.classifier_output_fake, self.classifier_feature_fake = self.amyloid_classifier.feature_extract(fake_B_224)
+
+        # content loss
+        content_loss = tf.constant(0.0)
+        style_loss = tf.constant(0.0)
+        content_weight = [1, 1, 1, 1, 1]
+        style_weight = [1, 1, 1, 1, 1]
+        if self.is_lc:
+            for i in range(5):
+                layer_real = self.classifier_feature_real[i]
+                layer_fake = self.classifier_feature_fake[i]
+                _, h, w, c = map(lambda i: i.value, layer_real.get_shape())
+                size = h * w * c                    # TODO: consider the batch size
+                content_loss += content_weight[i] * tf.nn.l2_loss((layer_real - layer_fake) / float(size))
+
+        # style Loss
+        if self.is_ls:
+            # print(layers_fake)
+            for i in range(5):
+                layer_real = self.classifier_feature_real[i]
+                _, h, w, c = map(lambda i: i.value, layer_real.get_shape())
+                size = h * w * c
+                layer_real = tf.reshape(layer_real, [-1, h * w, c])
+                gram_real = tf.matmul(tf.transpose(layer_real, perm=[0,2,1]), layer_real) / size
+                layer_fake = self.classifier_feature_fake[i]
+                layer_fake = tf.reshape(layer_fake, [-1, h * w, c])
+                gram_fake = tf.matmul(tf.transpose(layer_fake, perm=[0,2,1]), layer_fake) / size
+                style_loss += style_weight[i] * tf.nn.l2_loss(gram_real - gram_fake) / (4*c*c)
+        return content_loss, style_loss
+
     def feature_matching(self):
         self.feat_match_loss = []
         for i in range(len(self.D_h_all)):
@@ -255,7 +308,10 @@ class pix2pix(object):
             self.g_loss = sum([self.feat_match_flag_holder[i]*self.feat_match_loss[i] for i in range(len(self.feat_match_loss))])
 
         self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
-        self.content_loss, self.style_loss = self.calculator_vgg()
+        if self.extractor == 'vgg':
+            self.content_loss, self.style_loss = self.calculator_vgg()
+        else:
+            self.content_loss, self.style_loss = self.calculator_amyloid()
 
         # combination of each loss
         self.l1_lambda_holder = tf.placeholder(tf.float32)
@@ -368,8 +424,8 @@ class pix2pix(object):
             np.random.shuffle(training_data)
 
             # if epoch > 0:
-            #     self.lc_lamb_cur = self.c_lamb
-            #     self.ls_lamb_cur = self.s_lamb
+            self.lc_lamb_cur = self.c_lamb
+            self.ls_lamb_cur = self.s_lamb
 
             for idx in xrange(0, batch_idxs):
                 batch_files = training_data[idx*self.batch_size:(idx+1)*self.batch_size]
@@ -379,6 +435,7 @@ class pix2pix(object):
                 batch_images = np.array(batch).astype(np.float32)
 
                 # self.feat_match_flag = [1.0,1.0,1.0,1.0]
+                self.read_data_np = batch_images
                 self.feed_dict = {self.real_data:batch_images, self.l1_lambda_holder:self.l1_lamb_cur,
                 self.lc_lambda_holder:self.lc_lamb_cur, self.ls_lambda_holder:self.ls_lamb_cur,
                 self.feat_match_flag_holder:self.feat_match_flag}
@@ -402,22 +459,22 @@ class pix2pix(object):
                     errS = self.style_loss.eval(self.feed_dict)
 
                     # pdb.set_trace()
-                    if errC < 0.01:
-                        if self.lc_lamb_cur == self.c_lamb / 10:
-                            self.lc_lamb_cur = self.c_lamb
-                    elif errC < 0.1:
-                        self.lc_lamb_cur = self.c_lamb / 10
-                    if errS < 1:
-                        if self.ls_lamb_cur == self.s_lamb / 10:
-                            self.ls_lamb_cur = self.s_lamb
-                    elif errS < 10:
-                        if self.ls_lamb_cur == self.s_lamb / 100:
-                            self.ls_lamb_cur = self.s_lamb / 10
-                    elif errS < 100:
-                        if self.ls_lamb_cur == self.s_lamb / 1000:
-                            self.ls_lamb_cur = self.s_lamb / 100
-                    elif errS < 1000:
-                        self.ls_lamb_cur = self.s_lamb / 1000
+                    # if errC < 0.01:
+                    #     if self.lc_lamb_cur == self.c_lamb / 10:
+                    #         self.lc_lamb_cur = self.c_lamb
+                    # elif errC < 0.1:
+                    #     self.lc_lamb_cur = self.c_lamb / 10
+                    # if errS < 1:
+                    #     if self.ls_lamb_cur == self.s_lamb / 10:
+                    #         self.ls_lamb_cur = self.s_lamb
+                    # elif errS < 10:
+                    #     if self.ls_lamb_cur == self.s_lamb / 100:
+                    #         self.ls_lamb_cur = self.s_lamb / 10
+                    # elif errS < 100:
+                    #     if self.ls_lamb_cur == self.s_lamb / 1000:
+                    #         self.ls_lamb_cur = self.s_lamb / 100
+                    # elif errS < 1000:
+                    #     self.ls_lamb_cur = self.s_lamb / 1000
                     # print(self.lc_lamb_cur)
                     # print(self.ls_lamb_cur)
 

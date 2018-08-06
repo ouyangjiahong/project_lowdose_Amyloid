@@ -53,6 +53,7 @@ class amyloid_pos_neg_classifier(object):
 
         # save model
         self.saver = tf.train.Saver(max_to_keep=3)
+        print('finish building amyloid classifier')
 
     def train(self):
         # optimizer
@@ -118,7 +119,7 @@ class amyloid_pos_neg_classifier(object):
                 loss_best = loss_avg
 
 
-    def classifier(self, image):
+    def classifier(self, image, is_extract=False):
         filter_num = [32, 32, 64, 128, 256]
         # filter_num = [64, 64, 128, 256, 512]
         kernel_size = [7, 3, 3, 3, 3]
@@ -130,8 +131,9 @@ class amyloid_pos_neg_classifier(object):
             is_training = False
 
         with tf.variable_scope("amyloid_classifier") as scope:
-            assert tf.get_variable_scope().reuse == False
-
+            # assert tf.get_variable_scope().reuse == False
+            if is_extract == True:
+                scope.reuse_variables()
             # conv1, [224,224,1]->[56,56,64]
             with tf.variable_scope('conv1'):
                 x = conv2d(image, filter_num[0], k_h=kernel_size[0], k_w=kernel_size[0],
@@ -162,7 +164,7 @@ class amyloid_pos_neg_classifier(object):
                 x = residual_block(x, is_training=is_training)
             conv4 = x
 
-            # conv3, [14,14,256]->[7,7,512]
+            # conv5, [14,14,256]->[7,7,512]
             with tf.variable_scope('conv5_1'):
                 x = residual_block(x, output_dim=filter_num[4], stride=stride[4], is_first=True, is_training=is_training)
             with tf.variable_scope('conv5_2'):
@@ -243,9 +245,9 @@ class amyloid_pos_neg_classifier(object):
 
         # load ckpt
         if self.load(self.checkpoint_dir):
-            print(" [*] Load SUCCESS")
+            print(" [*] Load amyloid classifier SUCCESS")
         else:
-            print(" [!] Load failed...")
+            print(" [!] Load amyloid classifier failed...")
 
         # load data
         sample_files = glob('{}/test/*.{}'.format(self.dataset_dir, 'npz'))
@@ -293,6 +295,6 @@ class amyloid_pos_neg_classifier(object):
     def feature_extract(self, images):
         """feature extractor"""
         # TODO: check shape
-        layer_feature, output = self.sess.run([self.layer_feature, self.output], feed_dict={self.input:images})   # TODO: maybe need labels
+        output, _, layer_feature = self.classifier(images, is_extract=True)
 
-        return layer_feature, output
+        return output, layer_feature
