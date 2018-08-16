@@ -49,10 +49,20 @@ filename_init = ''
 #             2014, 2016, 2063, 2152, 2157, 2185, 2214, 2287, 2304, 2314, 2317]
 # test_set = [2376, 2414, 2416, 2425, 2427, 2482, 2511, 2516, 4501, 4739, 50767]
 # use the same training and testing dataset as Kevin
-train_set = [1350, 1726, 1750, 1758, 1762, 1785, 1791, 1827, 1838, 1905, 1907,
+# train_set = [1350, 1726, 1750, 1758, 1762, 1785, 1791, 1827, 1838, 1905, 1907,
+#             1978, 2014, 2016, 2157, 2214, 2304, 2317, 2376, 2427, 2414, 1961,
+#             2185, 2152, 1375, 1789, 1816, 1965, 2314, 2511, 2416, 2425]
+# test_set = [1355, 1732, 1947, 2482, 2516, 2063, 1923, 50767]
+
+# test on pos/neg
+# train_set = [1355, 1732, 1762, 1785, 1791, 1827, 1838, 1905, 1978, 1947,
+#             2014, 2016, 2157, 2214, 2304, 2317, 2376, 2427, 2482, 1961,
+#             2185, 2152, 1375, 1816, 1965, 2314, 2511, 2416, 2516, 2063, 50767]
+# test_set = [1350, 1375, 1726, 1750, 1758, 1789, 1907, 1923, 2414, 2425]
+train_set = [1350, 1726, 1750, 1762, 1785, 1791, 1827, 1838, 1905, 1907,
             1978, 2014, 2016, 2157, 2214, 2304, 2317, 2376, 2427, 2414, 1961,
-            2185, 2152, 1375, 1789, 1816, 1965, 2314, 2511, 2416, 2425]
-test_set = [1355, 1732, 1947, 2482, 2516, 2063, 1923, 50767]
+            2185, 2152, 1789, 1816, 1965, 2314, 2511, 2416, 2482]
+test_set = [1355, 1732, 1947, 2516, 2063, 50767, 1375, 1758, 1923, 2425]
 
 if set == 'test':
     using_set = test_set
@@ -156,7 +166,7 @@ for index_data in range(num_dataset_train):
         # load data
         data_train_input, f_norm = prepare_data_from_nifti(path_train_input,
                                     list_augments, scale_by_F_norm=is_F_norm,
-                                    scale_by_mean_norm=is_mean_norm, crop=crop)
+                                    scale_by_mean_norm=is_mean_norm, crop=crop, set=set)
         list_data_train_input.append(data_train_input)
         lowdose_norm.append(f_norm)
     data_train_input = np.concatenate(list_data_train_input, axis=-1)
@@ -166,16 +176,20 @@ for index_data in range(num_dataset_train):
     path_train_gt = list_dataset_train[index_data]['gt']
     data_train_gt, fulldose_norm = prepare_data_from_nifti(path_train_gt,
                                     list_augments, scale_by_F_norm=is_F_norm,
-                                    scale_by_mean_norm=is_mean_norm, crop=crop)
+                                    scale_by_mean_norm=is_mean_norm, crop=crop, set=set)
 
     start_idx = index_sample_total
     # export
+    if set == 'test':
+        slices = 89
+    else:
+        slices = 89-2*crop-1
     index_sample_total = export_data_to_npz(data_train_input,
                                             data_train_gt,
                                             dir_data_dst,
                                             index_sample_total,
                                             ext_data, dimension,
-                                            slices=89-2*crop, block=block)
+                                            slices=slices, block=block)
 
     for i in range(start_idx, index_sample_total):
         info = flatten([[using_set[index_data]], lowdose_norm, [fulldose_norm]])

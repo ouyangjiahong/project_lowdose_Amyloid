@@ -14,6 +14,8 @@ import os
 from glob import glob
 from skimage.measure import compare_mse, compare_nrmse, compare_psnr, compare_ssim
 from time import gmtime, strftime
+import shutil
+import nibabel as nib
 
 pp = pprint.PrettyPrinter()
 
@@ -214,15 +216,13 @@ def inverse_transform(images, data_type, is_max_norm):
     else:
         return (images+1.)/2.
 
-def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_path, set='output', block=4, series_num=501):
-    if not os.path.exists(dicom_path):
-        os.makedirs(dicom_path)
-
+def save_nifti(series_name, dict_path, ori_path, dst_path, set='output', block=4):
     sample_files = glob('{}/test/*.npz'.format(ori_path))
     num = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
     sample_files = [x for (y, x) in sorted(zip(num, sample_files))]
 
     output_files = glob('{}/*{}.npy'.format(dst_path, set))
+    # pdb.set_trace()
     output_files = sorted(output_files)
     if len(sample_files) != len(output_files):
         sample_files = sample_files[:len(output_files)]
@@ -234,45 +234,97 @@ def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_pa
     idx = 0
 
     subj_num = len(subject_list)
+    volumes = []
+    subject_list = []
     for id in range(subj_num):
-        subj_id = subject_sample_list[idx][0]
+        subj_id = str(int(subject_sample_list[idx][0]))
         norm = subject_sample_list[idx][1]
         slices_list = []
         for i in range(idx, len(output_files)):
-            if subject_sample_list[i][0] != subj_id:       # check str or int
-                continue
+            if str(int(subject_sample_list[i][0])) != subj_id:       # check str or int
+                break
             else:
                 output = np.load(output_files[idx])
                 slices_list.append(output)
                 idx = idx + 1
+                print('{}, {}, {}'.format(subj_id, i, idx))
         volume = np.stack(slices_list, axis=2)   # check shape
-        # pdb.set_trace()
+
+        # padding to 256*256*89
+        if volume.shape[2] < 89:
+            pad_front = np.tile(np.expand_dims(volume[:,:,0], axis=2), [1,1,block])
+            pad_back = np.tile(np.expand_dims(volume[:,:,-1], axis=2), [1,1,block])
+            volume = np.concatenate([pad_front, volume, pad_back], axis=2)
+        # cases at the end
+        if volume.shape[2] < 89:
+            pad_back = np.tile(np.expand_dims(volume[:,:,-1], axis=2), [1,1,89-volume.shape[2]])
+            volume = np.concatenate([volume, pad_back], axis=2)
         volume = volume * norm
-        # pdb.set_trace()
+        volumes.append(volume)
+        subject_list.append(subj_id)
+
+        save nifti
+        nifti_path = 'nifti/'
+        if not os.path.exists(nifti_path):
+            os.makedirs(nifti_path)
+        if not os.path.exists(nifti_path+series_name+'/'):
+            os.makedirs(nifti_path+series_name+'/')
+        img = nib.Nifti1Image(volume, np.eye(4))
+        nib.save(img, nifti_path+series_name+'/'+subj_id+'.nii')
+
+    return volumes, subject_list
+
+def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_path, set='output', block=4):
+    if not os.path.exists(dicom_path):
+        os.makedirs(dicom_path)
+
+    subj_dict = {1350:"Patient01", 1355:"Patient02", 1375:"Patient03", 1726:"Patient04", 1732:"Patient05",
+                1750:"Patient06", 1758:"Patient07", 1762:"Patient08", 1785:"Patient09", 1789:"Patient10",
+                1791:"Patient11", 1816:"Patient12", 1827:"Patient13", 1838:"Patient14", 1905:"Patient15",
+                1907:"Patient16", 1923:"Patient17", 1947:"Patient18", 1961:"Patient19", 1965:"Patient20",
+                1978:"Patient21", 2014:"Patient22", 2016:"Patient23", 2063:"Patient24", 2152:"Patient25",
+                2157:"Patient26", 2185:"Patient27", 2214:"Patient28", 2304:"Patient29", 2314:"Patient30",
+                2317:"Patient31", 2376:"Patient32", 2414:"Patient33", 2416:"Patient34", 2425:"Patient35",
+                2427:"Patient36", 2482:"Patient37", 2511:"Patient38", 2516:"Patient39", 50767:"Patient40"}
+
+    volumes, subject_list = save_nifti(series_name, dict_path, ori_path, dst_path, set, block)
+
+    subj_num = len(subject_list)
+    for id in range(subj_num):
+        subj_id = subject_list[id]
+        volume = volumes[id]
+        print(volume.shape)
 
         # read header and save dicom
-        subj_id = str(int(subj_id))
         if not os.path.exists(dicom_path+subj_id):
             os.makedirs(dicom_path+subj_id)
         if not os.path.exists(dicom_path+subj_id+'/'+set):
             os.makedirs(dicom_path+subj_id+'/'+set)
+
+        series_num = random.randint(0,1000)
         for i in range(volume.shape[2]):
-            im_pred = np.squeeze(volume[:,:,i]).T
+            im_pred = np.squeeze(volume[:,:,88-i]).T
             im_pred_rot = zip(*im_pred[::-1])
             im_pred = zip(*im_pred_rot[::-1])
             im_pred = np.asarray(im_pred)
             im_pred_flip = np.flip(im_pred, 1)
-            header_name = header_path+subj_id+'/Full_Dose_40/_bin1_sl'+str(i+block+1)+'.sdcopen'
+
+            dicom_idx = i + 1
+            header_name = header_path+subj_id+'/_bin1_sl'+str(dicom_idx)+'.sdcopen'
+            dcm_header_name = '/home/data/Amyloid_dicom_dcm/'+subj_dict[int(subj_id)]+'/Hundredth_Dose/anon_'+str(dicom_idx)+'.dcm'
             testdcm = dicom.read_file(header_name)
+            testdcm_dcm = dicom.read_file(dcm_header_name)
             if set == 'target':
                 testdcm.SeriesDescription = 'target'
             else:
                 testdcm.SeriesDescription = 'Synthesis_'+series_name
             testdcm.SeriesNumber = series_num
-            im_pred_fullrange = 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
+            testdcm.PatientsName = testdcm_dcm.PatientsName
+            im_pred_fullrange = 50 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
             im_pred_fullrange[im_pred_fullrange < 0] = 0
-            # print(np.amax(im_pred_fullrange))
             im_pred_fullrange[im_pred_fullrange > 32767] = 32767
             testdcm.PixelData = im_pred_fullrange.astype(np.int16).tostring()
-            testdcm.save_as(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(i+block+1)+'.sdcopen')
-            print(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(i+block+1)+'.sdcopen')
+            # testdcm.save_as(dicom_path+subj_id+'/'+set+'/anon_'+str(dicom_idx)+'.dcm')
+            # print(dicom_path+subj_id+'/'+set+'/anon_'+str(dicom_idx)+'.dcm')
+            testdcm.save_as(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(dicom_idx)+'.sdcopen')
+            print(dicom_path+subj_id+'/'+set+'/_bin1_sl'+str(dicom_idx)+'.sdcopen')

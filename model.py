@@ -142,10 +142,11 @@ class pix2pix(object):
             os.makedirs(path_tmp)
 
         self.extractor = extractor
-        if self.extractor == 'vgg':
-            self.vgg = vgg.vgg_16
-        else:
-            self.amyloid_classifier = amyloid_pos_neg_classifier(self.sess, phase='test')
+        if is_lc or is_ls:
+            if self.extractor == 'vgg':
+                self.vgg = vgg.vgg_16
+            else:
+                self.amyloid_classifier = amyloid_pos_neg_classifier(self.sess, phase='test')
         self.build_model()
 
     def calculator_vgg(self):
@@ -501,8 +502,25 @@ class pix2pix(object):
                 self.save(self.checkpoint_dir, counter)
 
             # change self.feat_match_flag based on L1 loss average
+            # threshold for mean_norm
+            # if self.feat_match_dynamic:
+            #     if L1_loss_avg < 0.01:
+            #         print('add h4 layer')
+            #         self.feat_match_flag = [1.0,1.0,1.0,1.0]
+            #     elif L1_loss_avg < 0.02:
+            #         if self.feat_match_flag != [1.0,1.0,1.0,1.0]:
+            #             print('add h3 layer')
+            #             self.feat_match_flag = [1.0,1.0,1.0,0.0]
+            #     elif L1_loss_avg < 0.025:
+            #         if self.feat_match_flag != [1.0,1.0,1.0,0.0]:
+            #             print('add h2 layer')
+            #             self.feat_match_flag = [1.0,1.0,0.0,0.0]
+            #     elif L1_loss_avg < 0.03:
+            #         if self.feat_match_flag != [1.0,1.0,0.0,0.0]:
+            #             print('add h1 layer')
+            #             self.feat_match_flag = [1.0,0.0,0.0,0.0]
             if self.feat_match_dynamic:
-                if L1_loss_avg < 0.01:
+                if L1_loss_avg < 0.015:
                     print('add h4 layer')
                     self.feat_match_flag = [1.0,1.0,1.0,1.0]
                 elif L1_loss_avg < 0.02:
@@ -731,8 +749,8 @@ class pix2pix(object):
         input_stat_all = []
         output_stat_all = []
         for i, sample_image in enumerate(sample_images):
-            # if sample_image.shape[0] < self.batch_size:
-            #     break
+            if sample_image.shape[0] < self.batch_size:
+                break
             idx = i+1
             print("sampling image ", idx)
             samples = self.sess.run(
@@ -765,6 +783,7 @@ class pix2pix(object):
                 dicom_path = 'dicom/'+series_name+'/'
                 dict_path = self.task + '_mean_norm_' + '2D_test_subject_sample.npz'
             # header_path = '/data3/Amyloid/temp/'
+            # header_path = '/home/data/Amyloid_dicom/'
             header_path = '/home/data/Amyloid/'
 
             save_dicom(series_name, dicom_path, dict_path, self.dataset_dir,

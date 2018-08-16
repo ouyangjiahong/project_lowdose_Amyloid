@@ -30,17 +30,18 @@ def augment_data(data_xy, axis_xy=[1,2], augment={'flipxy':0,'flipx':0,'flipy':0
             data_xy[:,:,:-augment['shifty'],...] = data_xy[:,:,augment['shifty']:,...]
     return data_xy
 
-def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, scale_by_mean_norm=False, crop=20):
+def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, scale_by_mean_norm=False, crop=20, set='train'):
     # get nifti
     nib_load = nib.load(path_load)
     # print(nib_load.header)
     # get data
     data_load = nib_load.get_data()
     # transpose to [x,y,slices] -> [slice, x, y, channel]
-    data_load = np.transpose(data_load[:,:,:,np.newaxis], [2,0,1,3])
+    data_load_all = np.transpose(data_load[:,:,:,np.newaxis], [2,0,1,3])
 
-    # only keep middle 48 slices
-    data_load = data_load[crop:-crop,:]
+    # only keep middle 40 slices
+    # start from crop+block+1
+    data_load = data_load_all[crop+1:-crop,:]
     # pdb.set_trace()
 
     # scale
@@ -52,8 +53,13 @@ def prepare_data_from_nifti(path_load, list_augments=[], scale_by_F_norm=False, 
         sum = np.sum(data_load)
         nonzero_num = np.sum(data_load > 0)
         norm = sum / float(nonzero_num)
-        data_load = data_load / norm
+        # pdb.set_trace()
+        if set == 'test':
+            data_load = data_load_all / norm
+        else:
+            data_load = data_load / norm
         print(np.max(data_load))
+
         # pdb.set_trace()
 
     # finish loading data
