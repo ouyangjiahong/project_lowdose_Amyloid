@@ -37,7 +37,7 @@ end
 % Read nii
 hdr = spm_vol(fname_fullfile);
 % Convert data type of image matrix for dicom to recognize
-V = uint16(spm_read_vols(hdr));
+V = uint16(100*spm_read_vols(hdr));
 % Use header orientation matrix for voxel size
 % VS = [hdr.mat(1,1) hdr.mat(2,2) hdr.mat(3,3)];
 VS = [1.1719,1.1719,2.7800];

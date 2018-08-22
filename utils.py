@@ -320,7 +320,7 @@ def save_dicom(series_name, dicom_path, dict_path, ori_path, dst_path, header_pa
                 testdcm.SeriesDescription = 'Synthesis_'+series_name
             testdcm.SeriesNumber = series_num
             testdcm.PatientsName = testdcm_dcm.PatientsName
-            im_pred_fullrange = 50 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
+            im_pred_fullrange = 100 * im_pred_flip / testdcm.RescaleSlope   # 100 for lowdose
             im_pred_fullrange[im_pred_fullrange < 0] = 0
             im_pred_fullrange[im_pred_fullrange > 32767] = 32767
             testdcm.PixelData = im_pred_fullrange.astype(np.int16).tostring()
