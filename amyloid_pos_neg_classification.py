@@ -8,6 +8,12 @@ import pdb
 from six.moves import xrange
 import argparse
 from ops import *
+import skimage
+import skimage.io
+import skimage.transform
+import skimage.color
+import scipy as sci
+import matplotlib as mpl
 
 
 class amyloid_pos_neg_classifier(object):
@@ -39,11 +45,17 @@ class amyloid_pos_neg_classifier(object):
     def build_model(self):
         # image and label
         self.input = tf.placeholder(tf.float32, [None, self.crop_size, self.crop_size, 1], name='input')
-        self.label = tf.placeholder(tf.float32)
+        self.label = tf.placeholder(tf.float32, [None, 1], name='label')
 
         # loss
         self.output, self.output_logits, self.layer_feature = self.classifier(self.input)
-        self.loss = tf.nn.l2_loss(self.output - self.label)
+        self.grad_list = self.compute_gradient()
+
+        # pdb.set_trace()
+        # TODO: binary cross entropy
+        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.label, logits=self.output_logits))
+        # old MSE loss for regression
+        # self.loss = tf.nn.l2_loss(self.output - self.label)
 
         # summary
         self.loss_sum = tf.summary.scalar("training loss", self.loss)
@@ -97,6 +109,7 @@ class amyloid_pos_neg_classifier(object):
                 labels = [b[1] for b in batch]
                 images = np.array(images).astype(np.float32)
                 labels = np.reshape(np.array(labels), [self.batch_size, 1])
+                # pdb.set_trace()
 
                 _, summary_str = self.sess.run([optim, self.loss_sum],
                                         feed_dict={self.input:images, self.label:labels})
@@ -212,6 +225,9 @@ class amyloid_pos_neg_classifier(object):
         edge = (image.shape[0] - self.crop_size) // 2
         image = image[edge:edge+self.crop_size, edge:edge+self.crop_size, :]
         label = data['label'].tolist()
+        # pdb.set_trace()
+        if label > 0:
+            label = 1
         return image, label
 
     def save(self, checkpoint_dir, step, is_best=False):
@@ -253,6 +269,8 @@ class amyloid_pos_neg_classifier(object):
         sample_files = glob('{}/test/*.{}'.format(self.dataset_dir, 'npz'))
         n = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
         sample_files = [x for (y, x) in sorted(zip(n, sample_files))]
+        # TODO only test on small set
+        # sample_files = sample_files[:50]
 
         print("Loading testing images ...")
         sample = [self.load_data(sample_file) for sample_file in sample_files]
@@ -269,16 +287,22 @@ class amyloid_pos_neg_classifier(object):
         loss_counter = 0
         label_list = []
         output_list = []
+        heatmap_list = np.empty([0, 4, self.crop_size, self.crop_size])
         for i, sample_image in enumerate(sample_images):
             # if sample_image.shape[0] < self.batch_size:
             #     break
             idx = i+1
             labels = sample_labels[i]
             labels = np.reshape(np.array(labels), [-1, 1])
-            loss, output = self.sess.run([self.loss, self.output], feed_dict={self.input:sample_image, self.label:labels})
+            # TODO: check here
+            loss, output, grad_list, feat_list = self.sess.run([self.loss, self.output, self.grad_list, self.layer_feature], feed_dict={self.input:sample_image, self.label:labels})
             loss_counter = loss + loss_counter
+            # pdb.set_trace()
             label_list.append(labels)
             output_list.append(output)
+            heatmap = self.compute_heatmap(grad_list, feat_list)
+            heatmap_list = np.concatenate([heatmap_list, heatmap], axis=0)
+        # pdb.set_trace()
         loss_avg = loss_counter / idx
         print('average MSE Loss: ', loss_avg)
 
@@ -292,9 +316,78 @@ class amyloid_pos_neg_classifier(object):
         np.savetxt('classification_test.txt', res, fmt='%3f', delimiter='   ')
         print('average MAE Loss: ', np.mean(abs(label_list - output_list)))
 
+        self.visualization(sample, label_list, output_list, heatmap_list)
+
+    def compute_gradient(self):
+        # positive
+        yc = self.output_logits
+        grad_list = []
+        for feature in self.layer_feature:
+            grad = tf.gradients(yc, feature)[0]
+            print('grad: ', grad)
+            grad_list.append(grad)
+        # pdb.set_trace()
+        return grad_list
+
+    def compute_heatmap(self, grad_list, feat_list):
+        # in numpy, return [batch_size, selected_layer, 224, 224]
+        layer_select = [1, 2, 3, 4] # conv4 and conv5
+        heatmaps_list = []
+        for i in layer_select:
+            grad = grad_list[i]
+            feat = feat_list[i]
+            batch_size = grad.shape[0]
+            alpha = np.mean(grad, axis=(1,2))
+            heatmaps = np.array([alpha[j] * feat[j,:,:,:] for j in range(batch_size)])
+            # pdb.set_trace()
+            heatmaps = np.sum(heatmaps, axis=3)
+            heatmaps = np.maximum(heatmaps, 0)
+            max_value = np.max(heatmaps, axis=(1,2))
+            heatmaps = np.array([heatmaps[j,:,:] / max_value[j] for j in range(batch_size)])
+            heatmaps = skimage.transform.resize(heatmaps, (batch_size, self.crop_size, self.crop_size), preserve_range=True)
+            # pad_size = (256 - self.crop_size) // 2
+            # heatmaps_pad = np.pad(heatmaps, ((0,0),(pad_size, pad_size), (pad_size, pad_size)), 'constant', constant_values=0)
+            heatmaps_list.append(heatmaps)
+        # pdb.set_trace()
+        heatmaps_list = np.array(heatmaps_list)
+        heatmaps_list = np.swapaxes(heatmaps_list, 0, 1)
+        return heatmaps_list
+
+
     def feature_extract(self, images):
         """feature extractor"""
         # TODO: check shape
         output, _, layer_feature = self.classifier(images, is_extract=True)
 
         return output, layer_feature
+
+    def visualization(self, input_list, label_list, output_list, heatmap_list):
+        vis_path = 'visualization/'
+        if not os.path.exists(vis_path):
+            os.makedirs(vis_path)
+
+        cm_jet = mpl.cm.get_cmap('jet')
+        map_num = 4
+
+        for i in range(len(input_list)):
+            img = input_list[i].squeeze()
+            img = np.rot90(img, axes=(0,1))
+            img = img / np.max(img)
+            label = label_list[i]
+            output = output_list[i]
+            heatmap = heatmap_list[i]
+            heatmap = np.rot90(heatmap, axes=(1,2))
+            heatmap = np.concatenate([heatmap[j,:,:] for j in range(map_num)], axis=1)
+
+            # path = vis_path + str(i).zfill(4) + '_input_' + str(label) + '_' + str(output) + '.jpg'
+            # sci.misc.imsave(path, img)
+            path = vis_path + str(i).zfill(4) + '_heatmap_' + str(label) + '_' + str(output) + '.jpg'
+            # pdb.set_trace()
+            img = np.concatenate([img for j in range(map_num)], axis=1)
+            img_hsv = skimage.color.rgb2hsv(np.dstack((img, img, img)))
+            heatmap_rgba = cm_jet(heatmap)
+            heatmap_hsv = skimage.color.rgb2hsv(heatmap_rgba[:,:,:3])
+            img_hsv[..., 0] = heatmap_hsv[..., 0]
+            img_hsv[..., 1] = heatmap_hsv[..., 1] * 0.5
+            img_heatmap = skimage.color.hsv2rgb(img_hsv)
+            sci.misc.imsave(path, img_heatmap)
