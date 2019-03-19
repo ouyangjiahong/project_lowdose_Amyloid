@@ -10,10 +10,11 @@ import pdb
 from data_preparation_classification_tools import *
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--set', dest='set', default='train', help='train, test')
+parser.add_argument('--set', dest='set', default='train', help='train, test, test_subj')
+parser.add_argument('--subj_id', dest='subj_id', type=int, default='1355')
 parser.add_argument('--dir_label_ori', dest='dir_label_ori', default='diagnosis_status_all.xlsx', help='path of the label xlsx')
 parser.add_argument('--dir_label_dst', dest='dir_label_dst', default='classification_label.npy', help='path of the data label')
-parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='/home/data/', help='folder of original data')
+parser.add_argument('--dir_data_ori', dest='dir_data_ori', default='../data/', help='folder of original data')
 parser.add_argument('--dir_data_dst', dest='dir_data_dst', default='data/classification/', help='folder of jpg classification data')
 parser.add_argument('--is_norm', dest='is_norm', action='store_true', help='divided by volume mean value)')
 parser.set_defaults(is_norm=False)
@@ -27,10 +28,15 @@ dir_data_raw = dir_data_ori + 'Amyloid/'
 dir_data_res = dir_data_ori + 'Amyloid_Kevin_result/'
 dir_data_dst = args.dir_data_dst
 norm = args.is_norm
+subj_id = args.subj_id
 
 dir_data_dst = dir_data_dst + set + '/'
 if not os.path.exists(dir_data_dst):
     os.makedirs(dir_data_dst)
+if set == 'test_subj':
+    dir_data_dst = dir_data_dst + str(subj_id) + '/'
+    if not os.path.exists(dir_data_dst):
+        os.makedirs(dir_data_dst)
 
 '''
 labels
@@ -103,8 +109,10 @@ test_set = [1355, 1732, 1947, 2516, 2063, 50767, 1375, 1758, 1923, 2425]
 
 if set == 'test':
     using_set = test_set
-else:
+elif set == 'train':
     using_set = train_set
+else:
+    using_set = [args.subj_id]
 
 list_subject = [str(x) for x in using_set if os.path.isdir(os.path.join(dir_data_ori, 'Amyloid', str(x)))]
 print('generating subject list:')
@@ -116,16 +124,15 @@ filename_fulldose = 'pet_nifti/500_.nii.gz'
 filename_pet_mr = 'mc.nii.gz'
 filename_petonly = 'petonly.nii.gz'
 
-
 for subject_id in list_subject:
     dir_subject = os.path.join(dir_data_raw, subject_id)
     list_dataset_train.append({'gt':os.path.join(dir_subject, filename_fulldose)})
     list_dataset_label.append(label_dict[subject_id][0])
-    dir_subject = os.path.join(dir_data_res, subject_id)
-    list_dataset_train.append({'gt':os.path.join(dir_subject, filename_pet_mr)})
-    list_dataset_label.append(label_dict[subject_id][1])
-    list_dataset_train.append({'gt':os.path.join(dir_subject, filename_petonly)})
-    list_dataset_label.append(label_dict[subject_id][2])
+    # dir_subject = os.path.join(dir_data_res, subject_id)
+    # list_dataset_train.append({'gt':os.path.join(dir_subject, filename_pet_mr)})
+    # list_dataset_label.append(label_dict[subject_id][1])
+    # list_dataset_train.append({'gt':os.path.join(dir_subject, filename_petonly)})
+    # list_dataset_label.append(label_dict[subject_id][2])
 
 num_dataset_train = len(list_dataset_train)
 print('process {0} data description'.format(num_dataset_train))
@@ -169,6 +176,7 @@ generate train data
 '''
 label_list = []
 index_sample_total = 0
+# pdb.set_trace()
 for index_data in range(num_dataset_train):
     # directory
     # load data ground truth

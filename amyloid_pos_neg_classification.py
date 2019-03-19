@@ -14,13 +14,14 @@ import skimage.transform
 import skimage.color
 import scipy as sci
 import matplotlib as mpl
+import nibabel as nib
 
 
 class amyloid_pos_neg_classifier(object):
     def __init__(self, sess, dataset_dir='data/classification/', log_dir='log_classification/',
                     checkpoint_dir='checkpoint_classification/', epochs=100, validation_split=0.1,
                     batch_size=64, crop_size=224, lr=0.0002, beta1=0.5,
-                    print_freq=100, continue_train=False, phase='train'):
+                    print_freq=100, continue_train=False, phase='train', subj_id='1355'):
         self.sess = sess
         self.batch_size = batch_size
         self.epochs = epochs
@@ -34,6 +35,7 @@ class amyloid_pos_neg_classifier(object):
         self.print_freq = print_freq
         self.continue_train = continue_train
         self.phase = phase
+        self.subj_id = subj_id
 
         if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
@@ -317,6 +319,103 @@ class amyloid_pos_neg_classifier(object):
         print('average MAE Loss: ', np.mean(abs(label_list - output_list)))
 
         self.visualization(sample, label_list, output_list, heatmap_list)
+
+    def test_subj(self):
+        """Test classifier"""
+        init_op = tf.global_variables_initializer()
+        self.sess.run(init_op)
+
+        # load ckpt
+        if self.load(self.checkpoint_dir):
+            print(" [*] Load amyloid classifier SUCCESS")
+        else:
+            print(" [!] Load amyloid classifier failed...")
+
+        # load data
+        sample_files = glob('{}/test_subj/{}/*.{}'.format(self.dataset_dir, self.subj_id, 'npz'))
+        n = [int(i) for i in map(lambda x: x.split('/')[-1].split('.npz')[0], sample_files)]
+        sample_files = [x for (y, x) in sorted(zip(n, sample_files))]
+        # TODO only test on small set
+        # sample_files = sample_files[:50]
+
+        print("Loading testing images ...")
+        sample = [self.load_data(sample_file) for sample_file in sample_files]
+        labels = [b[1] for b in sample]
+        sample = [b[0] for b in sample]
+        sample = np.array(sample).astype(np.float32)
+
+        sample_images = [sample[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+        sample_images = np.array(sample_images)
+        sample_labels = [labels[i:i+self.batch_size]
+                         for i in xrange(0, len(sample), self.batch_size)]
+
+        # pdb.set_trace()
+
+        loss_counter = 0
+        label_list = []
+        output_list = []
+        heatmap_list = np.empty([0, 4, self.crop_size, self.crop_size])
+
+        for i, sample_image in enumerate(sample_images):
+            # if sample_image.shape[0] < self.batch_size:
+            #     break
+            idx = i+1
+            labels = sample_labels[i]
+            labels = np.reshape(np.array(labels), [-1, 1])
+            # TODO: check here
+            loss, output, grad_list, feat_list = self.sess.run([self.loss, self.output, self.grad_list, self.layer_feature], feed_dict={self.input:sample_image, self.label:labels})
+            loss_counter = loss + loss_counter
+            # pdb.set_trace()
+            label_list.append(labels)
+            output_list.append(output)
+            heatmap = self.compute_heatmap(grad_list, feat_list)
+            heatmap_list = np.concatenate([heatmap_list, heatmap], axis=0)
+        # pdb.set_trace()
+        loss_avg = loss_counter / idx
+        print('average MSE Loss: ', loss_avg)
+
+        # save result
+        # pdb.set_trace()
+        # sci.misc.imsave('tmp_input.jpg', sample_image[0,:])
+        label_list = np.concatenate(label_list, axis=0)
+        output_list = np.concatenate(output_list, axis=0)
+        # with open('classification_test.npz','w') as file_input:
+        #     np.savez_compressed(file_input, label=label_list, output=output_list)
+        #
+        # res = np.concatenate([label_list, output_list, abs(label_list - output_list)], axis=1)
+        # np.savetxt('classification_test.txt', res, fmt='%3f', delimiter='   ')
+        # print('average MAE Loss: ', np.mean(abs(label_list - output_list)))
+
+        # self.visualization(sample, label_list, output_list, heatmap_list)
+        # pdb.set_trace()
+        # heatmap_list = np.rot90(heatmap_list, axes=(2,3))
+        # heatmap_list = heatmap_list / np.max(heatmap_list)
+        heatmap_pad1 = np.zeros([25, 4, self.crop_size, self.crop_size])
+        heatmap_pad2 = np.zeros([24, 4, self.crop_size, self.crop_size])
+        heatmap = np.concatenate([heatmap_pad1, heatmap_list, heatmap_pad2], axis=0)
+        heatmap = np.transpose(heatmap, [1,2,3,0])
+        heatmap = np.pad(heatmap, ((0,0),(16,16),(16,16),(0,0)), 'constant', constant_values=0)
+        heatmap4 = heatmap[3,:,:,:]
+        # heatmap4 = np.rot90(heatmap4, axes=(0,1))
+        heatmap3 = heatmap[2,:,:,:]
+        # heatmap3 = np.rot90(heatmap3, axes=(0,1))
+        heatmap2 = heatmap[1,:,:,:]
+        # heatmap2 = np.rot90(heatmap2, axes=(0,1))
+        # pdb.set_trace()
+        # sci.misc.imsave('tmp_heatmap.jpg', heatmap4[:,:,-25])
+
+        # save nifti
+        nifti_path = 'visualization_subj/'
+        if not os.path.exists(nifti_path):
+            os.makedirs(nifti_path)
+        img = nib.Nifti1Image(heatmap2, np.eye(4))
+        nib.save(img, nifti_path+self.subj_id+'_2.nii')
+        img = nib.Nifti1Image(heatmap3, np.eye(4))
+        nib.save(img, nifti_path+self.subj_id+'_3.nii')
+        img = nib.Nifti1Image(heatmap4, np.eye(4))
+        nib.save(img, nifti_path+self.subj_id+'_4.nii')
+        print('save visualization!')
 
     def compute_gradient(self):
         # positive

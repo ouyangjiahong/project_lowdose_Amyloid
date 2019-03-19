@@ -12,9 +12,10 @@ from amyloid_pos_neg_classification import amyloid_pos_neg_classifier
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--gpu', dest='gpu', default='0', help='0,1,2,3')
-parser.add_argument('--phase', dest='phase', default='train', help='train, test, visualize')
+parser.add_argument('--phase', dest='phase', default='train', help='train, test, test_subj, visualize')
+parser.add_argument('--subj_id', dest='subj_id', default='1355')
 parser.add_argument('--dataset_dir', dest='dataset_dir', default='data/classification', help='name of the dataset')
-parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint_classification_new', help='models are saved here')
+parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint_classification', help='models are saved here')
 parser.add_argument('--log_dir', dest='log_dir', default='./log_classification_new', help='logs are saved here')
 parser.add_argument('--epochs', dest='epochs', type=int, default=50, help='# of epoch')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=64, help='# images in batch')
@@ -38,12 +39,14 @@ def main(_):
         model = amyloid_pos_neg_classifier(sess, epochs=args.epochs, validation_split=args.validation_split,
                         dataset_dir=args.dataset_dir, log_dir=args.log_dir, checkpoint_dir=args.checkpoint_dir,
                         batch_size=args.batch_size, crop_size=args.crop_size, lr=args.lr, beta1=args.beta1,
-                        print_freq=args.print_freq, continue_train=args.continue_train, phase=args.phase)
+                        print_freq=args.print_freq, continue_train=args.continue_train, phase=args.phase, subj_id=args.subj_id)
 
         if args.phase == 'train':
             model.train()
-        else:
+        elif args.phase == 'test':
             model.test()
+        else:
+            model.test_subj()
 
 if __name__ == '__main__':
     tf.app.run()
