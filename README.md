@@ -1,6 +1,6 @@
-Ultra-Low-dose Amyloid PET reconstruction by GAN with perceptual loss
+#Ultra-Low-dose Amyloid PET reconstruction by GAN with perceptual loss
 
-# Packages and Tools
+## Packages and Tools
 FSL, FreeSurfer, tensorflow, pydicom, nibabel, skimage, numpy, scipy
 
 ## Pre-processing
