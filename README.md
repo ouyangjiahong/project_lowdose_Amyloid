@@ -1,4 +1,11 @@
-#Ultra-Low-dose Amyloid PET reconstruction by GAN with perceptual loss
+# Ultra-Low-dose Amyloid PET reconstruction by GAN with perceptual loss
+@article{ouyang2019ultra,
+  title={Ultra-low-dose PET Reconstruction using Generative Adversarial Network with Feature Matching and Task-Specific Perceptual Loss},
+  author={Ouyang, Jiahong and Chen, Kevin T and Gong, Enhao and Pauly, John and Zaharchuk, Greg},
+  journal={Medical physics},
+  year={2019},
+  publisher={Wiley Online Library}
+}
 
 ## Packages and Tools
 FSL, FreeSurfer, tensorflow, pydicom, nibabel, skimage, numpy, scipy
